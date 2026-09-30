@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/sessions/{sessionId}/events")
+@RequestMapping("/sessions/{sessionId}/events")
 @RequiredArgsConstructor
 public class EventController {
 
@@ -21,12 +21,7 @@ public class EventController {
 	@PostMapping
 	public ResponseEntity<EventResponse> append(@PathVariable String sessionId,
 		@Valid @RequestBody AppendEventRequest req) {
-
-		AppendResult result = eventService.append(sessionId, req);
-		if(result.duplicate()) {
-			return ResponseEntity.ok().header("Idempotent-Replayed", "true").body(result.event());
-		}
-		return ResponseEntity.status(HttpStatus.CREATED).body(result.event());
+		return eventService.append(sessionId, req).toResponse();
 	}
 
 	@GetMapping

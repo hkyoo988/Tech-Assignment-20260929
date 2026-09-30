@@ -5,15 +5,15 @@
 
 | ID | 주제 | 추천안 | 대안 | 상태 |
 |---|---|---|---|---|
-| D1 | API 경로 | 과제 예시와 동일하게 `/sessions` (접두사 `/api` 제거) | `/api/sessions` 유지 | 초안 |
-| D2 | 참여자 모델 | `chat_session`에 허용 참여자(A/B) 유지 + `session_participant` 테이블을 **현재 상태 프로젝션**으로 추가 | 참여자 테이블만 사용 | 초안 |
+| D1 | API 경로 | 과제 예시와 동일하게 `/sessions` (접두사 `/api` 제거) | `/api/sessions` 유지 | **확정** |
+| D2 | 참여자 모델 | `chat_session`에 허용 참여자(A/B) 유지 + `session_participant` 테이블을 **현재 상태 프로젝션**으로 추가 | 참여자 테이블만 사용 | **확정** |
 | D3 | join/leave/end API | 전용 엔드포인트 제공, 내부적으로는 모두 **같은 이벤트 append 경로**를 탄다 | 이벤트 API 하나로만 처리 | 초안 |
-| D4 | 메시지 식별자 | `messageId` = 최초 `MESSAGE_SENT` 이벤트의 `clientEventId` (클라이언트가 즉시 알고 있음) | 서버 seq를 messageId로 사용 | 초안 |
-| D5 | 순서 기준 | 세션 단위 **서버 발급 seq**가 유일한 기준. `clientTs`는 참고용 | 클라이언트 시각 / 클라이언트 시퀀스 기반 재정렬 | 초안 |
-| D6 | 중복 처리 | `UNIQUE(session_id, client_event_id)` + 중복 수신 시 **최초 결과를 200으로 재응답**. 같은 키에 내용이 다르면 409 | 409만 반환 | 초안 |
-| D7 | seq 발급 동시성 | 세션 row **비관적 락**(`SELECT ... FOR UPDATE`) | 낙관적 락(@Version) + 재시도 | 초안 |
+| D4 | 메시지 식별자 | `messageId` = 최초 `MESSAGE_SENT` 이벤트의 `clientEventId` (클라이언트가 즉시 알고 있음) | 서버 seq를 messageId로 사용 | **확정** |
+| D5 | 순서 기준 | 세션 단위 **서버 발급 seq**가 유일한 기준. `clientTs`는 참고용 | 클라이언트 시각 / 클라이언트 시퀀스 기반 재정렬 | **확정 (구현·검증 완료)** |
+| D6 | 중복 처리 | `UNIQUE(session_id, client_event_id)` + 중복 수신 시 **최초 결과를 200으로 재응답**. 같은 키에 내용이 다르면 409 | 409만 반환 | **확정 (구현·검증 완료)** |
+| D7 | seq 발급 동시성 | 세션 row **비관적 락**(`SELECT ... FOR UPDATE`) | 낙관적 락(@Version) + 재시도 | **확정 (구현·검증 완료)** |
 | D8 | server_ts 단조성 | 락 안에서 `serverTs = max(now, 직전 이벤트 serverTs)` 로 세션 내 역전 방지 | 보정 없음 | 초안 |
-| D9 | 복원 시점 지정 | `?at=`(ISO 시각, server_ts 기준)과 `?atSeq=` 둘 다 지원. 내부적으로 at → seq로 변환 | 하나만 지원 | 초안 |
+| D9 | 복원 시점 지정 | `?at=`(ISO 시각, server_ts 기준)과 `?atSeq=` 둘 다 지원. 내부적으로 at → seq로 변환 | 하나만 지원 | **확정** |
 | D10 | 복원 전략 | **스냅샷 + 이후 이벤트 리플레이**. 스냅샷은 N=100 이벤트마다 | 전체 리플레이만 | 초안 |
 | D11 | 스냅샷 생성 시점 | 1차: 이벤트 커밋 후 **비동기**(AFTER_COMMIT 리스너) 생성, 멱등(PK = session_id+seq) | 이벤트 저장 트랜잭션 안에서 동기 생성 | 초안 |
 | D12 | 이벤트 payload 저장 | MySQL `JSON` 컬럼 (타입별 필드가 달라 유연성 우선) | 타입별 컬럼 정규화 | 초안 |

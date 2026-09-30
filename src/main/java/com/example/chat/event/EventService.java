@@ -7,7 +7,8 @@ import com.example.chat.event.dto.AppendResult;
 import com.example.chat.event.dto.EventResponse;
 import com.example.chat.session.ChatSession;
 import com.example.chat.session.ChatSessionRepository;
-import java.util.Objects;
+import com.example.chat.session.SessionParticipant;
+import com.example.chat.session.SessionParticipantRepository;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -29,6 +30,7 @@ public class EventService {
 
 	private final ChatSessionRepository sessionRepository;
 	private final SessionEventRepository eventRepository;
+	private final SessionParticipantRepository participantRepository;
 	private final Clock clock;
 
 	@Transactional
@@ -52,6 +54,17 @@ public class EventService {
 		if (req.type() == EventType.SESSION_STARTED) {
 			throw new IllegalArgumentException("SESSION_STARTED는 클라이언트가 보낼 수 없습니다");
 		}
+		if (session.isCompleted()) {
+    		throw new ConflictException("종료된 세션입니다: " + sessionId);
+		}
+		if (req.type() == EventType.MESSAGE_SENT) {
+			boolean joined = participantRepository.findBySessionIdAndUserId(sessionId, req.userId())
+				.map(SessionParticipant::isJoined)
+				.orElse(false);
+			if (!joined) {
+				throw new ConflictException("입장(JOINED) 상태가 아니라 메시지를 보낼 수 없습니다: " + req.userId());
+			}
+		}
 
 		SessionEvent saved = saveEvent(session, req.type(), req.userId(), req.payload(),
 			req.clientEventId(), toUtc(req.clientTs()));
@@ -63,6 +76,7 @@ public class EventService {
 	public SessionEvent saveEvent(ChatSession session, EventType type, String userId,
 		Map<String, Object> payload, String clientEventId, LocalDateTime clientTs) {
 		long seq = session.nextSeq(); // last_seq 증가 → 커밋 시 UPDATE (변경 감지)
+		LocalDateTime now = LocalDateTime.now(clock);
 
 		SessionEvent event = SessionEvent.builder()
 			.sessionId(session.getId())
@@ -72,9 +86,20 @@ public class EventService {
 			.userId(userId)
 			.payload(payload)
 			.clientTs(clientTs)
-			.serverTs(LocalDateTime.now(clock))
+			.serverTs(now)
 			.build();
-		return eventRepository.save(event);
+
+		SessionEvent saved = eventRepository.save(event);   // ① 진실의 원천 먼저
+
+		// 참여자 상태 갱신 (이벤트를 보낸 사람의 행)
+		if (type.affectsParticipant()) {
+			participantRepository.findBySessionIdAndUserId(session.getId(), userId)
+				.ifPresent(p -> p.apply(type, seq, now));
+		}
+		if (type == EventType.SESSION_ENDED) {
+			session.end(now);
+		}
+		return saved;
 	}
 
 	@Transactional(readOnly = true)

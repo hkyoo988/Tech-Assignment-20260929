@@ -19,14 +19,22 @@ public class SessionService {
 
 	private final ChatSessionRepository sessionRepository;
 	private final EventService eventService;
+	private final SessionParticipantRepository participantRepository;
 	private final Clock clock;
 
 	@Transactional
 	public SessionResponse create(CreateSessionRequest req) {
+		LocalDateTime now = LocalDateTime.now(clock);
 		ChatSession session = ChatSession.start(req.participantA(), req.participantB(),
-			LocalDateTime.now(clock));
+			now);
 
 		session = sessionRepository.save(session);
+
+		// 허용된 참여자 2명의 상태 행을 미리 만든다 (이벤트 반영 전에 존재해야 함)
+		participantRepository.save(
+			SessionParticipant.create(session.getId(), req.participantA(), now));
+		participantRepository.save(
+			SessionParticipant.create(session.getId(), req.participantB(), now));
 
 		// 세션 시작도 "일어난 사실"이므로 이벤트로 기록 (복원의 출발점)
 		eventService.saveEvent(session, EventType.SESSION_STARTED, req.participantA(),

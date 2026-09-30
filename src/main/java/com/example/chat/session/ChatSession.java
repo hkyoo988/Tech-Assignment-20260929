@@ -64,4 +64,13 @@ public class ChatSession {
 	public long nextSeq() {
 		return ++lastSeq;
 	}
+
+	public void end(LocalDateTime now) {
+		this.status = SessionStatus.COMPLETED;
+		this.endedAt = now;
+	}
+
+	public boolean isCompleted() {
+		return status == SessionStatus.COMPLETED;
+	}
 }

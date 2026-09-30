@@ -3,13 +3,16 @@
 # 사용법: ./scripts/concurrency-test.sh [동시 요청 수(기본 20)]
 set -uo pipefail
 
-BASE=${BASE:-http://localhost:8080/api}
+BASE=${BASE:-http://localhost:8080}
 N=${1:-20}
 
 SID=$(curl -s -X POST "$BASE/sessions" -H 'Content-Type: application/json' \
   -d '{"participantA":"alice","participantB":"bob"}' | sed -E 's/.*"sessionId":"([^"]+)".*/\1/')
 echo "세션: $SID"
 echo
+
+curl -s -o /dev/null -X POST "$BASE/sessions/$SID/join" -H 'Content-Type: application/json' -d '{"userId":"alice","clientEventId":"alice-join"}'
+curl -s -o /dev/null -X POST "$BASE/sessions/$SID/join" -H 'Content-Type: application/json' -d '{"userId":"bob","clientEventId":"bob-join"}'
 
 echo "== 1) 서로 다른 이벤트 ${N}개를 동시에 전송 (기대: 전부 201) =="
 seq 1 "$N" | xargs -P "$N" -I{} curl -s -o /dev/null -w "%{http_code}\n" \
@@ -25,7 +28,7 @@ seq 1 "$N" | xargs -P "$N" -I{} curl -s -o /dev/null -w "%{http_code}\n" \
   | sort | uniq -c
 echo
 
-echo "== 3) 저장된 seq 목록 (기대: 1부터 빈틈·중복 없이 $((N + 2))까지) =="
+echo "== 3) 저장된 seq 목록 (기대: 1부터 빈틈·중복 없이 $((N + 4))까지) =="
 curl -s "$BASE/sessions/$SID/events?afterSeq=0&size=500" \
   | grep -o '"seq":[0-9]*' | cut -d: -f2 | tr '\n' ' '
 echo
