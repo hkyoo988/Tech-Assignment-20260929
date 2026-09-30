@@ -1,25 +1,38 @@
 # 설계 결정 목록 (Decision Log)
 
-> 상태: **초안** — 각 항목의 "추천안"을 검토 후 확정한다. 확정되면 상태를 `확정`으로 바꾸고, 관련 문서에 반영한다.
+> 각 결정의 상태: `확정 (구현 완료)` / `확정 (구현 예정)` / `초안`
 > 나중에 README의 "주요 의사결정 요약"은 이 문서에서 뽑아 쓴다.
 
 | ID | 주제 | 추천안 | 대안 | 상태 |
 |---|---|---|---|---|
-| D1 | API 경로 | 과제 예시와 동일하게 `/sessions` (접두사 `/api` 제거) | `/api/sessions` 유지 | **확정** |
-| D2 | 참여자 모델 | `chat_session`에 허용 참여자(A/B) 유지 + `session_participant` 테이블을 **현재 상태 프로젝션**으로 추가 | 참여자 테이블만 사용 | **확정** |
-| D3 | join/leave/end API | 전용 엔드포인트 제공, 내부적으로는 모두 **같은 이벤트 append 경로**를 탄다 | 이벤트 API 하나로만 처리 | 초안 |
-| D4 | 메시지 식별자 | `messageId` = 최초 `MESSAGE_SENT` 이벤트의 `clientEventId` (클라이언트가 즉시 알고 있음) | 서버 seq를 messageId로 사용 | **확정** |
+| D1 | API 경로 | 과제 예시와 동일하게 `/sessions` (접두사 `/api` 제거) | `/api/sessions` 유지 | **확정 (구현 완료)** |
+| D2 | 참여자 모델 | `chat_session`에 허용 참여자(A/B) 유지 + `session_participant` 테이블을 **현재 상태 프로젝션**으로 추가 | 참여자 테이블만 사용 | **확정 (구현 완료)** |
+| D3 | join/leave/end API | 전용 엔드포인트 제공, 내부적으로는 모두 **같은 이벤트 append 경로**를 탄다 | 이벤트 API 하나로만 처리 | **확정 (구현 완료)** |
+| D4 | 메시지 식별자 | `messageId` = 최초 `MESSAGE_SENT` 이벤트의 `clientEventId` (클라이언트가 즉시 알고 있음) | 서버 seq를 messageId로 사용 | 확정 (구현 예정) |
 | D5 | 순서 기준 | 세션 단위 **서버 발급 seq**가 유일한 기준. `clientTs`는 참고용 | 클라이언트 시각 / 클라이언트 시퀀스 기반 재정렬 | **확정 (구현·검증 완료)** |
 | D6 | 중복 처리 | `UNIQUE(session_id, client_event_id)` + 중복 수신 시 **최초 결과를 200으로 재응답**. 같은 키에 내용이 다르면 409 | 409만 반환 | **확정 (구현·검증 완료)** |
 | D7 | seq 발급 동시성 | 세션 row **비관적 락**(`SELECT ... FOR UPDATE`) | 낙관적 락(@Version) + 재시도 | **확정 (구현·검증 완료)** |
 | D8 | server_ts 단조성 | 락 안에서 `serverTs = max(now, 직전 이벤트 serverTs)` 로 세션 내 역전 방지 | 보정 없음 | 초안 |
-| D9 | 복원 시점 지정 | `?at=`(ISO 시각, server_ts 기준)과 `?atSeq=` 둘 다 지원. 내부적으로 at → seq로 변환 | 하나만 지원 | **확정** |
+| D9 | 복원 시점 지정 | `?at=`(ISO 시각, server_ts 기준)과 `?atSeq=` 둘 다 지원. 내부적으로 at → seq로 변환 | 하나만 지원 | 확정 (구현 예정) |
 | D10 | 복원 전략 | **스냅샷 + 이후 이벤트 리플레이**. 스냅샷은 N=100 이벤트마다 | 전체 리플레이만 | 초안 |
 | D11 | 스냅샷 생성 시점 | 1차: 이벤트 커밋 후 **비동기**(AFTER_COMMIT 리스너) 생성, 멱등(PK = session_id+seq) | 이벤트 저장 트랜잭션 안에서 동기 생성 | 초안 |
-| D12 | 이벤트 payload 저장 | MySQL `JSON` 컬럼 (타입별 필드가 달라 유연성 우선) | 타입별 컬럼 정규화 | 초안 |
+| D12 | 이벤트 payload 저장 | MySQL `JSON` 컬럼 (타입별 필드가 달라 유연성 우선) | 타입별 컬럼 정규화 | **확정 (구현 완료)** |
 | D13 | presence 저장 | 1차: 인스턴스 메모리 + 연결/해제는 이벤트로 영속화. 수평 확장 시 Redis로 이전(문서화) | 처음부터 Redis | 초안 |
 | D14 | 세션 상태 전이 | `ACTIVE ↔ INTERRUPTED`(끊김 유예 30초 초과 시) → `COMPLETED`(end). COMPLETED 이후 이벤트 거부 | 상태 2개만 사용 | 초안 |
-| D15 | 실시간 프로토콜 | Spring WebSocket (순수 WebSocket + JSON 메시지) | STOMP, SSE, WebRTC(비교는 문서로) | 초안 |
+| D15 | 실시간 프로토콜 | Spring WebSocket (순수 WebSocket + JSON 메시지) | STOMP, SSE, WebRTC(비교는 문서로) | **확정 (구현 완료)** |
+
+## 구현 중 추가된 결정
+
+| ID | 주제 | 결정 | 이유 | 상태 |
+|---|---|---|---|---|
+| D16 | 처리 순서 | `append()`는 ① 세션 락 → ② 중복 확인 → ③ 검증 → ④ 저장 순서 | ②를 락 안에서 해야 동시 재전송이 서로를 볼 수 있고, ③보다 앞서야 "상태가 바뀐 뒤 도착한 재전송"에도 최초와 같은 응답을 준다 | **확정 (구현 완료)** |
+| D17 | 실시간 전달 시점 | 이벤트 커밋 **후**(`@TransactionalEventListener(AFTER_COMMIT)`)에 상대 연결로 전송 | 롤백된 이벤트가 상대 화면에 보이는 일을 막는다 | **확정 (구현 완료)** |
+| D18 | 전송 방식과 비즈니스 로직 분리 | REST와 WebSocket 모두 같은 `EventService.append()`를 호출 | 입구가 달라도 락·멱등·순서 규칙이 동일하게 적용된다 | **확정 (구현 완료)** |
+| D19 | 서버 전용 이벤트 | `SESSION_STARTED`, `DISCONNECTED`, `RECONNECTED`는 클라이언트가 보낼 수 없음 | 서버가 판단해야 하는 사실(연결 상태 등)을 클라이언트가 위조하지 못하게 한다 | 확정 (WebSocket은 구현, REST는 구현 예정) |
+| D20 | 발신자 식별 (WebSocket) | 메시지 본문이 아니라 **연결 시점의 userId**를 사용 | 본문의 userId를 믿으면 다른 사용자로 위장할 수 있다. (인증은 과제 비목표라 쿼리 파라미터로 대체) | **확정 (구현 완료)** |
+| D21 | 참여자 id 전략 | `session_participant`는 BIGINT AUTO_INCREMENT + `UNIQUE(session_id, user_id)` | JPA 복합키(`@EmbeddedId`)의 복잡도를 피하면서 자연키 유일성은 DB가 보장 | **확정 (구현 완료)** |
+| D22 | 세션 id 전략 | `chat_session.id`는 JPA가 생성하는 UUID (`GenerationType.UUID`) | URL에 노출되는 id라 추측이 어려워야 하고, id가 null인 상태로 `save()`해야 `persist`로 처리되어 불필요한 SELECT가 없다 | **확정 (구현 완료)** |
+| D23 | 퇴장과 연결 | `LEFT`여도 WebSocket 연결은 유지 (종료 여부는 클라이언트가 결정). 세션 종료 시에는 서버가 연결을 닫음 | 참여 상태와 연결 상태는 다른 개념이다. 재입장도 같은 연결로 가능 | 확정 (종료 시 닫기는 구현 예정) |
 
 ## 결정 근거 메모
 

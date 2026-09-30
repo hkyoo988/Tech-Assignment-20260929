@@ -1,81 +1,117 @@
 # 2. API 명세
 
-> 상태: **초안**. 구현 후 springdoc-openapi로 Swagger UI(`/swagger-ui.html`)와 `openapi.yaml`을 함께 제공한다.
-> 경로는 결정 D1에 따라 `/sessions` 기준.
+> OpenAPI(Swagger UI)는 springdoc 적용 후 `/swagger-ui.html`에서 제공 예정. 이 문서는 사람이 읽기 위한 요약이다.
 
 ## 2.1 REST API
 
 | 메서드 | 경로 | 설명 | 상태 |
 |---|---|---|---|
-| POST | `/sessions` | 세션 생성 (`SESSION_STARTED` 이벤트 기록) | 구현(경로 변경 예정) |
-| GET | `/sessions` | 세션 목록. 필터: `status`, `participant`, `from`, `to`, 커서 페이지네이션 | 예정 |
-| GET | `/sessions/{id}` | 세션 현재 상태 | 구현 |
-| POST | `/sessions/{id}/join` | 참여 (`JOINED` 이벤트) | 예정 |
-| POST | `/sessions/{id}/leave` | 퇴장 (`LEFT` 이벤트) | 예정 |
-| POST | `/sessions/{id}/end` | 종료 (`SESSION_ENDED` 이벤트, 상태 COMPLETED) | 예정 |
-| POST | `/sessions/{id}/events` | 이벤트/메시지 수집 (멱등) | 구현(멱등 처리 예정) |
-| GET | `/sessions/{id}/events?afterSeq=&size=` | 재연결 resume용 증분 조회 | 구현 |
-| GET | `/sessions/{id}/events?from=&to=` | 디버깅/검증용 seq 범위 조회 | 예정 |
-| GET | `/sessions/{id}/timeline?at=` 또는 `?atSeq=` | 특정 시점 상태 복원 | 예정 |
-| POST | `/sessions/{id}/snapshots` | 스냅샷 수동 생성 (선택) | 예정 |
+| POST | `/sessions` | 세션 생성 (`SESSION_STARTED` 이벤트 기록, 참여자 2명 행 생성) | ✅ |
+| GET | `/sessions/{id}` | 세션 현재 상태 | ✅ |
+| POST | `/sessions/{id}/join` | 입장 (`JOINED`) | ✅ |
+| POST | `/sessions/{id}/leave` | 퇴장 (`LEFT`) | ✅ |
+| POST | `/sessions/{id}/end` | 종료 (`SESSION_ENDED`, status → COMPLETED) | ✅ |
+| POST | `/sessions/{id}/events` | 이벤트/메시지 수집 (멱등) | ✅ |
+| GET | `/sessions/{id}/events?afterSeq=&size=` | 이벤트 증분 조회 (재연결 동기화·디버깅) | ✅ |
+| GET | `/sessions/{id}/timeline?at=` / `?atSeq=` | 특정 시점 상태 복원 | 예정 |
+| GET | `/sessions?status=&participant=&from=&to=` | 세션 목록 | 예정 |
+| POST | `/sessions/{id}/snapshots` | 스냅샷 수동 생성 | 예정 (선택) |
 
-## 2.2 주요 요청/응답 예시
+join / leave / end는 전용 엔드포인트지만 내부적으로 **`POST /events`와 같은 `EventService.append()`**를 호출한다. 따라서 락·멱등·순서 규칙이 동일하게 적용된다.
+
+## 2.2 요청 / 응답
+
+### 세션 생성 `POST /sessions`
+```json
+// 요청
+{ "participantA": "alice", "participantB": "bob" }
+// 201
+{ "sessionId": "1fa0…", "participantA": "alice", "participantB": "bob",
+  "status": "ACTIVE", "lastSeq": 1, "startedAt": "…", "endedAt": null }
+```
+
+### 입장 / 퇴장 / 종료 `POST /sessions/{id}/join|leave|end`
+```json
+// 요청
+{ "userId": "alice", "clientEventId": "a-join" }
+```
+응답은 아래 이벤트 수집과 같다.
 
 ### 이벤트 수집 `POST /sessions/{id}/events`
-
-요청
 ```json
+// 요청
 {
-  "clientEventId": "0b6f7c1e-...",
+  "clientEventId": "a-msg-1",
   "type": "MESSAGE_SENT",
   "userId": "alice",
   "payload": { "text": "안녕" },
-  "clientTs": "2026-09-29T10:00:00+09:00"
+  "clientTs": "2026-09-30T10:00:00+09:00"
 }
-```
-
-응답
-| 상황 | 상태 코드 | 본문 |
-|---|---|---|
-| 신규 저장 | `201 Created` | 저장된 이벤트 (`seq`, `serverTs` 포함) |
-| 같은 `clientEventId` 재전송, 내용 동일 | `200 OK` + 헤더 `Idempotent-Replayed: true` | **최초 저장 결과 그대로** |
-| 같은 `clientEventId`인데 내용이 다름 | `409 Conflict` | 에러 |
-| 종료된 세션 | `409 Conflict` | 에러 |
-| 참여자가 아님 / 잘못된 타입 | `400 Bad Request` | 에러 |
-
-### 상태 복원 `GET /sessions/{id}/timeline?at=2026-09-29T01:00:00Z`
-
-```json
+// 201 Created (신규 저장)
 {
-  "sessionId": "…",
-  "restoredAtSeq": 42,
-  "restoredAtTime": "2026-09-29T00:59:58.120Z",
-  "status": "ACTIVE",
-  "participants": [
-    { "userId": "alice", "state": "JOINED", "presence": "ONLINE" },
-    { "userId": "bob",   "state": "JOINED", "presence": "OFFLINE" }
-  ],
-  "messages": [
-    { "messageId": "…", "seq": 12, "senderId": "alice", "text": "안녕(수정됨)", "status": "EDITED" },
-    { "messageId": "…", "seq": 15, "senderId": "bob",   "text": null,           "status": "DELETED" }
-  ],
-  "source": { "snapshotSeq": 0, "replayedEvents": 42 }
+  "eventId": 4, "sessionId": "1fa0…", "seq": 4, "clientEventId": "a-msg-1",
+  "type": "MESSAGE_SENT", "userId": "alice", "payload": { "text": "안녕" },
+  "clientTs": "2026-09-30T01:00:00", "serverTs": "2026-09-30T01:00:00.123456"
 }
 ```
-`source`는 복원에 스냅샷을 썼는지, 이벤트를 몇 개 리플레이했는지 보여준다 (성능 검증·디버깅용).
 
-## 2.3 공통 에러 형식
+| 상황 | 상태 코드 | 비고 |
+|---|---|---|
+| 신규 저장 | `201 Created` | |
+| 같은 `clientEventId` 재전송, 내용 동일 | `200 OK` + `Idempotent-Replayed: true` | 본문은 **최초 저장 결과와 동일** (seq, serverTs 포함) |
+| 같은 `clientEventId`, 내용 다름 | `409 CONFLICT` | 클라이언트 버그 |
+| 종료된 세션 | `409 CONFLICT` | |
+| `MESSAGE_SENT`인데 JOINED 상태가 아님 | `409 CONFLICT` | |
+| 참여자가 아님 / 서버 전용 타입 | `400 BAD_REQUEST` | |
+| 필수값 누락 / JSON 오류 | `400 INVALID_INPUT` / `MALFORMED_REQUEST` | |
+| 세션 없음 | `404 NOT_FOUND` | |
+| 락 대기 초과·데드락 등 일시적 실패 | `503 TRY_AGAIN` + `Retry-After: 1` | 같은 `clientEventId`로 재시도하면 안전 |
 
+> 시각은 모두 UTC로 저장·응답한다. (응답 형식에 `Z` 표기를 추가하는 작업은 예정)
+
+### 이벤트 조회 `GET /sessions/{id}/events?afterSeq=3&size=100`
+seq 오름차순 배열. `size` 최대 500.
+
+### 공통 에러 형식
 ```json
-{ "code": "NOT_FOUND", "message": "세션이 없습니다: …" }
+{ "code": "CONFLICT", "message": "종료된 세션입니다: 1fa0…" }
 ```
 
-## 2.4 WebSocket
+## 2.3 WebSocket
 
-- 엔드포인트: `ws://localhost:8080/ws?sessionId=…&userId=…&lastSeq=…`
-- 클라이언트 → 서버: `{ "clientEventId", "type", "payload", "clientTs" }`
-- 서버 → 클라이언트:
-  - `ACK` `{ clientEventId, seq, serverTs, duplicate }`
-  - `EVENT` (상대방 이벤트 브로드캐스트)
-  - `RESUME` (재연결 시 `lastSeq` 이후 누락 이벤트)
-- 상세는 [06-operations.md](06-operations.md)의 재연결 절 참고
+### 연결
+```
+ws://localhost:8080/ws?sessionId={sessionId}&userId={userId}[&lastSeq={n}]
+```
+- 발신자는 **연결 시점의 userId**로 식별한다. 메시지 본문의 userId는 받지 않는다.
+- `lastSeq`: 재연결 시 마지막으로 받은 seq (재연결 동기화, 구현 예정)
+
+### 클라이언트 → 서버
+```json
+{ "clientEventId": "a2", "type": "MESSAGE_SENT", "payload": { "text": "안녕" }, "clientTs": "…" }
+```
+허용 타입: `MESSAGE_SENT`, `JOINED`, `LEFT` (서버 전용 이벤트는 거부)
+
+### 서버 → 클라이언트 (봉투 형식)
+```json
+{ "kind": "ACK",    "data": { "clientEventId": "a2", "seq": 4, "serverTs": "…", "duplicate": false } }
+{ "kind": "EVENT",  "data": { /* 이벤트 수집 응답과 같은 형식 */ } }
+{ "kind": "ERROR",  "data": { "clientEventId": "a2", "code": "CONFLICT", "message": "…" } }
+{ "kind": "RESUME", "data": { "events": [ … ], "hasMore": false } }   // 구현 예정
+```
+
+| kind | 받는 사람 | 시점 |
+|---|---|---|
+| `ACK` | 보낸 사람 | 저장(또는 중복 확인) 완료 후 |
+| `EVENT` | 보낸 사람을 **제외한** 세션의 연결 | 트랜잭션 **커밋 후** |
+| `ERROR` | 보낸 사람 | 검증 실패 등 |
+| `RESUME` | 재연결한 사람 | 연결 직후, `lastSeq` 이후 이벤트 (예정) |
+
+재전송(`duplicate: true`)은 새 이벤트가 저장되지 않으므로 상대에게 `EVENT`가 가지 않는다.
+
+### 재현 방법 (websocat)
+```bash
+websocat "ws://localhost:8080/ws?sessionId=$SID&userId=alice"
+{"clientEventId":"a1","type":"JOINED"}
+{"clientEventId":"a2","type":"MESSAGE_SENT","payload":{"text":"안녕 bob"}}
+```

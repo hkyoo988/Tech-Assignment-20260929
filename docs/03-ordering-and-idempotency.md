@@ -1,6 +1,6 @@
 # 3. 순서 기준과 중복 처리
 
-> 상태: **초안** (결정 D5~D8)
+> 상태: **구현·검증 완료** (결정 D5~D7, D16). D8(server_ts 단조 보정)은 예정
 
 ## 3.1 문제 정의
 
@@ -59,8 +59,61 @@
 | DB 제약 | UNIQUE 2개 | 로직을 우회한 중복 |
 | 복원 로직 | seq 오름차순, `seq ≤ lastApplied`면 건너뜀 | 프로젝션 중복 반영 |
 
-## 3.5 검증 (테스트 계획)
+## 3.5 처리 순서와 그 이유 (구현)
 
-- 같은 `clientEventId` 10회 동시 전송 → 이벤트 1건, 응답 10건 모두 같은 seq
-- 서로 다른 이벤트 100건 동시 전송 → seq가 1..100 빈틈·중복 없음
-- 수정 이벤트가 원본보다 먼저 도착 → 409
+```
+EventService.append()   @Transactional
+ ① SELECT ... FROM chat_session WHERE id=? FOR UPDATE      세션 행 락
+ ② SELECT ... FROM session_event
+      WHERE session_id=? AND client_event_id=?              중복 확인
+      → 있으면: 내용 같으면 최초 결과 반환(200), 다르면 409
+ ③ 검증: 참여자인가, 서버 전용 타입인가, 종료된 세션인가, 메시지면 JOINED인가
+ ④ seq 발급(last_seq+1) → INSERT session_event → 참여자 프로젝션 갱신
+    → 커밋 시 UPDATE chat_session.last_seq
+```
+
+| 순서 | 어기면 생기는 문제 |
+|---|---|
+| ②를 ① **안에서** | 락 밖에서 확인하면 동시에 온 재전송들이 모두 "없음"으로 판단(Check-Then-Act 경쟁) → 둘 다 INSERT 시도 → 하나는 DB 제약 에러 |
+| ②를 ③ **앞에서** | 최초 요청 후 세션이 종료되거나 사용자가 퇴장한 뒤 재전송이 오면, 검증에서 에러가 난다. 이미 저장된 이벤트인데 클라이언트는 실패로 인식 |
+
+## 3.6 검증 결과
+
+재현 스크립트: `scripts/concurrency-test.sh` (세션 생성 → 두 참여자 입장 → 동시 요청)
+
+| 테스트 | 락·멱등 적용 전 | 락만 적용 | 락 + 멱등 (현재) |
+|---|---|---|---|
+| 서로 다른 이벤트 20개 동시 전송 | 201 ×2, 409 ×10, **500 ×8** | 201 ×20 | **201 ×20** |
+| 같은 `clientEventId` 20번 동시 전송 | 201 ×1, 409 ×14, **500 ×5** | 201 ×1, 409 ×19 | **201 ×1, 200 ×19** |
+| 저장된 seq | 1~4 (나머지 유실) | 빈틈·중복 없음 | **빈틈·중복 없음** |
+
+### 적용 전 500의 원인: 데드락
+```
+A: INSERT session_event → FK 확인으로 chat_session 행에 공유(S) 락
+B: INSERT session_event → 같은 행에 공유(S) 락 (S끼리는 공존)
+A: UPDATE chat_session → 배타(X) 락 필요 → B의 S 락 대기
+B: UPDATE chat_session → 배타(X) 락 필요 → A의 S 락 대기  → 데드락
+```
+처음부터 `FOR UPDATE`로 배타 락을 잡으면 같은 세션의 요청이 한 줄로 서므로, 데드락과 seq 충돌이 함께 사라진다. 락은 **세션 행 단위**라 다른 세션끼리는 서로 기다리지 않는다.
+
+### 시나리오 검증 (REST)
+
+| 단계 | 결과 | 확인한 규칙 |
+|---|---|---|
+| alice·bob 입장, alice 메시지 | 201 | |
+| alice 퇴장 후 메시지 | 409 | JOINED가 아니면 메시지 불가 |
+| bob 종료 후 메시지 | 409 | 종료된 세션 거부 |
+| **종료 후** bob 입장 요청 재전송 | **200 (최초 seq·serverTs 그대로)** | 멱등 처리가 검증보다 우선 |
+
+### WebSocket 경로 검증
+
+| 입력 | 결과 |
+|---|---|
+| 메시지 | ACK (seq) + 상대에게 EVENT |
+| 같은 메시지 재전송 | ACK (`duplicate: true`, 같은 seq), **상대에게는 전달 안 됨** |
+| 서버 전용 타입(`DISCONNECTED`) | ERROR |
+
+## 3.7 남은 작업
+- REST 경로에서도 `DISCONNECTED`/`RECONNECTED` 수신 거부 (현재는 WebSocket만 거부)
+- server_ts 단조 보정 (D8)
+- JUnit 통합 테스트로 위 검증을 자동화
