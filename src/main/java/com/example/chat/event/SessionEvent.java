@@ -1,13 +1,22 @@
 package com.example.chat.event;
 
 import com.example.chat.common.JsonMapConverter;
-import jakarta.persistence.*;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Objects;
+import lombok.AccessLevel;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 /**
  * 이벤트 저장소의 한 행. append-only이므로 상태 변경 메서드가 없다.
@@ -47,18 +56,23 @@ public class SessionEvent {
     @Column(nullable = false)
     private LocalDateTime serverTs;        // 서버 수신 시각
 
-    public static SessionEvent of(String sessionId, long seq, String clientEventId, EventType type,
-                                  String userId, Map<String, Object> payload,
-                                  LocalDateTime clientTs, LocalDateTime serverTs) {
-        SessionEvent e = new SessionEvent();
-        e.sessionId = sessionId;
-        e.seq = seq;
-        e.clientEventId = clientEventId;
-        e.type = type;
-        e.userId = userId;
-        e.payload = payload;
-        e.clientTs = clientTs;
-        e.serverTs = serverTs;
-        return e;
+    @Builder
+    private SessionEvent(String sessionId, long seq, String clientEventId, EventType type,
+        String userId, Map<String, Object> payload,
+        LocalDateTime clientTs, LocalDateTime serverTs) {
+        this.sessionId = sessionId;
+        this.seq = seq;
+        this.clientEventId = clientEventId;
+        this.type = type;
+        this.userId = userId;
+        this.payload = payload;
+        this.clientTs = clientTs;
+        this.serverTs = serverTs;
     }
+
+    public boolean hasSameContent(EventType type, String userId, Map<String, Object> payload) {
+		return this.type == type
+				&& this.userId.equals(userId)
+				&& Objects.equals(this.payload, payload);   // payload는 null일 수 있어서 Objects.equals
+	}
 }

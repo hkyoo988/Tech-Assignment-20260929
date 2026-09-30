@@ -12,16 +12,16 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class SessionController {
 
-    private final SessionService sessionService;
+	private final SessionService sessionService;
 
-    @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public SessionResponse create(@Valid @RequestBody CreateSessionRequest req) {
-        return sessionService.create(req);
-    }
+	@PostMapping
+	@ResponseStatus(HttpStatus.CREATED)
+	public SessionResponse create(@Valid @RequestBody CreateSessionRequest req) {
+		return sessionService.create(req);
+	}
 
-    @GetMapping("/{sessionId}")
-    public SessionResponse get(@PathVariable String sessionId) {
-        return sessionService.get(sessionId);
-    }
+	@GetMapping("/{sessionId}")
+	public SessionResponse get(@PathVariable String sessionId) {
+		return sessionService.get(sessionId);
+	}
 }

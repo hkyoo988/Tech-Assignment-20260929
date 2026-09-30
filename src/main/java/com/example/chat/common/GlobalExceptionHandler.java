@@ -1,5 +1,6 @@
 package com.example.chat.common;
 
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -39,10 +40,22 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("MALFORMED_REQUEST", "요청 본문을 해석할 수 없습니다"));
     }
 
-    // 2일차: 중복 이벤트가 여기로 떨어진다 → 3일차에 멱등 처리로 개선
     @ExceptionHandler(DataIntegrityViolationException.class)
-    public ResponseEntity<ErrorResponse> conflict(DataIntegrityViolationException e) {
+    public ResponseEntity<ErrorResponse> integrityViolation(DataIntegrityViolationException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(new ErrorResponse("CONFLICT", "데이터 제약 조건 위반"));
+                .body(new ErrorResponse("INTEGRITY_VIOLATION", "데이터 제약 조건 위반"));
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ErrorResponse> conflict(ConflictException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse("CONFLICT", e.getMessage()));
+    }
+
+    @ExceptionHandler(ConcurrencyFailureException.class)   // org.springframework.dao
+    public ResponseEntity<ErrorResponse> concurrencyFailure(ConcurrencyFailureException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header("Retry-After", "1")
+                .body(new ErrorResponse("TRY_AGAIN", "일시적인 동시성 충돌입니다. 같은 요청으로 재시도하세요"));
     }
 }
