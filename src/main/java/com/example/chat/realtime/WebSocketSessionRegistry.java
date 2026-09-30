@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
@@ -22,15 +23,27 @@ public class WebSocketSessionRegistry {
     public void register(String sessionId, String userId, WebSocketSession ws) {
         // 여러 스레드가 동시에 같은 연결로 보내도 안전하도록 감싼다 (전송 제한 5초, 버퍼 64KB)
         WebSocketSession safe = new ConcurrentWebSocketSessionDecorator(ws, 5_000, 64 * 1024);
-        connections.computeIfAbsent(sessionId, k -> new ConcurrentHashMap<>()).put(userId, safe);
+        WebSocketSession old = connections.computeIfAbsent(sessionId, k -> new ConcurrentHashMap<>()).put(userId, safe);
+        if (old != null) {
+            try { old.close(CloseStatus.POLICY_VIOLATION.withReason("다른 곳에서 접속했습니다")); } catch (Exception ignored) {}
+        }    }
+
+    public boolean unregister(String sessionId, String userId, WebSocketSession ws) {
+        Map<String, WebSocketSession> users = connections.get(sessionId);
+        if (users == null) return false;
+        boolean[] removed = {false};
+        users.computeIfPresent(userId, (k, current) -> {
+            if (current.getId().equals(ws.getId())) { removed[0] = true; return null; }
+            return current;
+        });
+        if (users.isEmpty()) connections.remove(sessionId);
+        return removed[0];
     }
 
-    public void unregister(String sessionId, String userId, WebSocketSession ws) {
-        Map<String, WebSocketSession> users = connections.get(sessionId);
-        if (users == null) return;
-        // 같은 사용자가 새로 연결한 뒤에 옛 연결이 끊긴 경우, 새 연결을 지우지 않도록 id 비교
-        users.computeIfPresent(userId, (k, current) -> current.getId().equals(ws.getId()) ? null : current);
-        if (users.isEmpty()) connections.remove(sessionId);
+    public void closeAll(String sessionId, CloseStatus status) {
+        connections.getOrDefault(sessionId, Map.of()).values().forEach(ws -> {
+            try { ws.close(status); } catch (Exception e) { log.warn("[닫기 실패] wsId={}", ws.getId()); }
+        });
     }
 
     // 보낸 사람을 제외한 세션의 모든 연결에 전송

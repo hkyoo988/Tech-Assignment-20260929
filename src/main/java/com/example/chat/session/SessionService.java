@@ -50,4 +50,11 @@ public class SessionService {
 			.map(SessionResponse::from)
 			.orElseThrow(() -> new NotFoundException("세션이 없습니다: " + sessionId));
 	}
+
+	@Transactional(readOnly = true)
+	public boolean isParticipant(String sessionId, String userId) {
+		return sessionRepository.findById(sessionId)
+			.map(s -> s.isParticipant(userId))
+			.orElse(false);
+	}
 }

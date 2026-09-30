@@ -1,5 +1,7 @@
 package com.example.chat.realtime;
 
+import static java.lang.Long.parseLong;
+
 import com.example.chat.common.ConflictException;
 import com.example.chat.common.NotFoundException;
 import com.example.chat.event.EventService;
@@ -9,8 +11,11 @@ import com.example.chat.event.dto.AppendResult;
 import com.example.chat.event.dto.EventResponse;
 import com.example.chat.realtime.ServerMessage.AckData;
 import com.example.chat.realtime.ServerMessage.ErrorData;
+import com.example.chat.realtime.ServerMessage.ResumeData;
+import com.example.chat.session.SessionService;
 import java.io.IOException;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,27 +32,40 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 @RequiredArgsConstructor
 public class ChatWebSocketHandler extends TextWebSocketHandler {
+    private static final int RESUME_LIMIT = 500;
 
     private static final Set<EventType> CLIENT_TYPES =
             EnumSet.of(EventType.MESSAGE_SENT, EventType.JOINED, EventType.LEFT);
     private final WebSocketSessionRegistry registry;
     private final EventService eventService;
     private final JsonMapper jsonMapper;   // tools.jackson.databind.json.JsonMapper (Spring이 만들어 둔 빈)
+    private final SessionService sessionService;
 
     @Override
     public void afterConnectionEstablished(WebSocketSession ws) throws Exception {
-        // URL의 ?sessionId=...&userId=... 를 꺼내서 연결에 저장
         var params = UriComponentsBuilder.fromUri(ws.getUri()).build().getQueryParams();
         String sessionId = params.getFirst("sessionId");
         String userId = params.getFirst("userId");
-        if (sessionId == null || userId == null) {
-            ws.close(CloseStatus.POLICY_VIOLATION.withReason("sessionId, userId가 필요합니다"));
+        long lastSeq = parseLong(params.getFirst("lastSeq"));
+
+        // ① 참여자 확인
+        if (sessionId == null || userId == null || !sessionService.isParticipant(sessionId, userId)) {
+            ws.close(CloseStatus.POLICY_VIOLATION.withReason("세션 참여자가 아닙니다"));
             return;
         }
         ws.getAttributes().put("sessionId", sessionId);
         ws.getAttributes().put("userId", userId);
+
+        // ② 등록 먼저
         registry.register(sessionId, userId, ws);
-        log.info("[연결] sessionId={}, userId={}, wsId={}", sessionId, userId, ws.getId());
+        log.info("[연결] sessionId={}, userId={}, lastSeq={}", sessionId, userId, lastSeq);
+
+        // ③ 끊겼다 돌아온 참여자면 RECONNECTED
+        eventService.recordPresence(sessionId, userId, true);
+
+        // ④ 놓친 이벤트
+        List<EventResponse> missed = eventService.getEvents(sessionId, lastSeq, RESUME_LIMIT);
+        registry.send(ws, ServerMessage.resume(new ResumeData(missed, missed.size() == RESUME_LIMIT)));
     }
 
     @Override
@@ -88,16 +106,22 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(WebSocketSession ws, CloseStatus status) {
-        log.info("[종료] sessionId={}, userId={}, status={}",
-                ws.getAttributes().get("sessionId"), ws.getAttributes().get("userId"), status);
         String sessionId = (String) ws.getAttributes().get("sessionId");
         String userId = (String) ws.getAttributes().get("userId");
-        if (sessionId != null && userId != null) {
-            registry.unregister(sessionId, userId, ws);
+        if (sessionId == null || userId == null) return;
+
+        boolean wasCurrent = registry.unregister(sessionId, userId, ws);
+        log.info("[종료] sessionId={}, userId={}, status={}, current={}", sessionId, userId, status, wasCurrent);
+        if (wasCurrent) {
+            eventService.recordPresence(sessionId, userId, false);
         }
     }
 
     private void send(WebSocketSession ws, ServerMessage message) throws IOException {
         ws.sendMessage(new TextMessage(jsonMapper.writeValueAsString(message)));
+    }
+
+    private long parseLong(String v) {
+        try { return v == null ? 0 : Long.parseLong(v); } catch (NumberFormatException e) { return 0; }
     }
 }

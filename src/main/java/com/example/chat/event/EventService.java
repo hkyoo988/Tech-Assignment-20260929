@@ -7,9 +7,11 @@ import com.example.chat.event.dto.AppendResult;
 import com.example.chat.event.dto.EventResponse;
 import com.example.chat.session.ChatSession;
 import com.example.chat.session.ChatSessionRepository;
+import com.example.chat.session.Presence;
 import com.example.chat.session.SessionParticipant;
 import com.example.chat.session.SessionParticipantRepository;
 import java.util.Optional;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -55,8 +57,10 @@ public class EventService {
 		if (!session.isParticipant(req.userId())) {
 			throw new IllegalArgumentException("세션 참여자가 아닙니다: " + req.userId());
 		}
-		if (req.type() == EventType.SESSION_STARTED) {
-			throw new IllegalArgumentException("SESSION_STARTED는 클라이언트가 보낼 수 없습니다");
+		if (req.type() == EventType.SESSION_STARTED
+				|| req.type() == EventType.DISCONNECTED
+				|| req.type() == EventType.RECONNECTED) {
+			throw new IllegalArgumentException("서버 전용 이벤트는 클라이언트가 보낼 수 없습니다: " + req.type());
 		}
 		if (session.isCompleted()) {
     		throw new ConflictException("종료된 세션입니다: " + sessionId);
@@ -118,6 +122,23 @@ public class EventService {
 			.findBySessionIdAndSeqGreaterThanOrderBySeqAsc(sessionId, afterSeq,
 				PageRequest.of(0, limit))
 			.stream().map(EventResponse::from).toList();
+	}
+
+	@Transactional
+	public Optional<SessionEvent> recordPresence(String sessionId, String userId, boolean connected) {
+		ChatSession session = sessionRepository.findByIdForUpdate(sessionId).orElse(null);
+		if (session == null || session.isCompleted()) return Optional.empty();
+
+		SessionParticipant p = participantRepository.findBySessionIdAndUserId(sessionId, userId).orElse(null);
+		if (p == null || !p.isJoined()) return Optional.empty();       // 참여 중인 사람만
+
+		EventType type = null;
+		if (connected && p.getPresence() == Presence.OFFLINE) type = EventType.RECONNECTED;
+		if (!connected && p.getPresence() == Presence.ONLINE) type = EventType.DISCONNECTED;
+		if (type == null) return Optional.empty();                      // 상태 변화 없으면 기록 안 함
+
+		String clientEventId = "sys-" + type.name().toLowerCase() + "-" + UUID.randomUUID();
+		return Optional.of(saveEvent(session, type, userId, null, clientEventId, null));
 	}
 
 	private LocalDateTime toUtc(OffsetDateTime t) {
