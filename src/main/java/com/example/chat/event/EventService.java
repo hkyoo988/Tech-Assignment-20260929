@@ -11,6 +11,8 @@ import com.example.chat.session.SessionParticipant;
 import com.example.chat.session.SessionParticipantRepository;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +24,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class EventService {
@@ -31,6 +34,7 @@ public class EventService {
 	private final ChatSessionRepository sessionRepository;
 	private final SessionEventRepository eventRepository;
 	private final SessionParticipantRepository participantRepository;
+	private final ApplicationEventPublisher publisher;
 	private final Clock clock;
 
 	@Transactional
@@ -99,6 +103,8 @@ public class EventService {
 		if (type == EventType.SESSION_ENDED) {
 			session.end(now);
 		}
+		log.info("① publishEvent 호출");
+		publisher.publishEvent(new EventAppended(EventResponse.from(saved)));
 		return saved;
 	}
 
