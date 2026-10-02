@@ -60,19 +60,28 @@ public class SessionParticipant {
 	}
 
 	public void apply(EventType type, long seq, LocalDateTime at) {
-      if (seq <= lastAppliedSeq) return;          // 이미 반영한 이벤트는 무시
-      switch (type) {
-          case JOINED       -> { state = JOINED; presence = ONLINE; }
-          case LEFT         -> { state = LEFT;   presence = OFFLINE; }
-          case DISCONNECTED -> presence = OFFLINE;
-          case RECONNECTED  -> presence = ONLINE;
-          default -> { }                          // 참여자 상태와 무관한 이벤트
-      }
-      lastAppliedSeq = seq;
-      updatedAt = at;
-  }
+		if (seq <= lastAppliedSeq) {
+			return;          // 이미 반영한 이벤트는 무시
+		}
+		switch (type) {
+			case JOINED -> {
+				state = JOINED;
+				presence = ONLINE;
+			}
+			case LEFT -> {
+				state = LEFT;
+				presence = OFFLINE;
+			}
+			case DISCONNECTED -> presence = OFFLINE;
+			case RECONNECTED -> presence = ONLINE;
+			default -> {
+			}                          // 참여자 상태와 무관한 이벤트
+		}
+		lastAppliedSeq = seq;
+		updatedAt = at;
+	}
 
-  public boolean isJoined() {
-	  return state == JOINED;
-  }
+	public boolean isJoined() {
+		return state == JOINED;
+	}
 }

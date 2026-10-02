@@ -8,8 +8,12 @@ import com.example.chat.event.dto.EventResponse;
 import com.example.chat.session.dto.CreateSessionRequest;
 import com.example.chat.session.dto.ParticipantSessionRequest;
 import com.example.chat.session.dto.SessionResponse;
+import com.example.chat.timeline.TimelineResponse;
+import com.example.chat.timeline.TimelineService;
 import jakarta.validation.Valid;
+import java.time.OffsetDateTime;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -21,6 +25,7 @@ public class SessionController {
 
 	private final SessionService sessionService;
 	private final EventService eventService;
+	private final TimelineService timelineService;
 
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
@@ -54,5 +59,14 @@ public class SessionController {
 	private ResponseEntity<EventResponse> appendAs(String sessionId, ParticipantSessionRequest req, EventType type) {
 		AppendEventRequest eventReq = new AppendEventRequest(req.clientEventId(), type, req.userId(), null, null);
 		return eventService.append(sessionId, eventReq).toResponse();
+	}
+
+	@GetMapping("/{sessionId}/timeline")
+	public TimelineResponse timeline(
+			@PathVariable String sessionId,
+			@RequestParam(required = false) Long atSeq,
+			@RequestParam(required = false)
+			@DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime at) {
+		return timelineService.restore(sessionId, atSeq, at);
 	}
 }
