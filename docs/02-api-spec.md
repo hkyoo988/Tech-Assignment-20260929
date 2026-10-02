@@ -17,7 +17,7 @@
 | POST | `/sessions/{id}/events` | 이벤트/메시지 수집 (멱등) | ✅ |
 | GET | `/sessions/{id}/events?afterSeq=&size=` | 이벤트 증분 조회 (재연결 동기화·디버깅) | ✅ |
 | GET | `/sessions/{id}/timeline?at=` / `?atSeq=` | 특정 시점 상태 복원 (이벤트 리플레이) | ✅ |
-| GET | `/sessions?status=&participant=&from=&to=` | 세션 목록 | 예정 |
+| GET | `/sessions?participant=&status=&from=&to=&size=` | 참여자의 세션 목록 (최신 시작순, size ≤ 100) | ✅ |
 | POST | `/sessions/{id}/snapshots` | 스냅샷 수동 생성 | 예정 (선택) |
 
 join / leave / end는 전용 엔드포인트지만 내부적으로 **`POST /events`와 같은 `EventService.append()`**를 호출한다. 따라서 락·멱등·순서 규칙이 동일하게 적용된다.

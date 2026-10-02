@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.time.OffsetDateTime;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -73,6 +74,17 @@ public class SessionController {
 			@RequestParam(required = false)
 			@DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime at) {
 		return timelineService.restore(sessionId, atSeq, at);
+	}
+
+	@Operation(summary = "참여자의 세션 목록", description = "최신 시작순. status, 기간(from 이상 ~ to 미만, ISO-8601 오프셋 필수) 필터. size 최대 100")
+	@GetMapping
+	public List<SessionResponse> list(
+			@RequestParam String participant,
+			@RequestParam(required = false) SessionStatus status,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to,
+			@RequestParam(defaultValue = "20") int size) {
+		return sessionService.list(participant, status, from, to, size);
 	}
 
 	private ResponseEntity<EventResponse> appendAs(String sessionId, ParticipantSessionRequest req, EventType type) {

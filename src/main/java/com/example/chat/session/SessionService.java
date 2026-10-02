@@ -5,7 +5,11 @@ import com.example.chat.event.EventService;
 import com.example.chat.event.EventType;
 import com.example.chat.session.dto.CreateSessionRequest;
 import com.example.chat.session.dto.SessionResponse;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +25,9 @@ public class SessionService {
 	private final EventService eventService;
 	private final SessionParticipantRepository participantRepository;
 	private final Clock clock;
+
+	private static final LocalDateTime MIN = LocalDateTime.of(1970, 1, 1, 0, 0);
+	private static final LocalDateTime MAX = LocalDateTime.of(9999, 12, 31, 0, 0);
 
 	@Transactional
 	public SessionResponse create(CreateSessionRequest req) {
@@ -56,5 +63,18 @@ public class SessionService {
 		return sessionRepository.findById(sessionId)
 			.map(s -> s.isParticipant(userId))
 			.orElse(false);
+	}
+
+	@Transactional(readOnly = true)
+	public List<SessionResponse> list(String userId, SessionStatus status,
+									  OffsetDateTime from, OffsetDateTime to, int size) {
+		LocalDateTime f = from == null ? MIN : from.withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime();
+		LocalDateTime t = to == null ? MAX : to.withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime();
+		int limit = Math.min(Math.max(size, 1), 100);
+
+		return sessionRepository.findByParticipant(userId, status, f, t, PageRequest.of(0, limit))
+				.stream()
+				.map(SessionResponse::from)
+				.toList();
 	}
 }

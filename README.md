@@ -46,6 +46,25 @@ websocat "ws://localhost:8080/ws?sessionId=$SID&userId=bob"
 websocat "ws://localhost:8080/ws?sessionId=$SID&userId=bob&lastSeq=3"   # 재연결: seq 3 이후를 RESUME으로 수신
 ```
 
+### 자동 테스트
+
+```bash
+./gradlew test        # Docker만 켜져 있으면 됨 (Testcontainers가 MySQL 8.4를 자동으로 띄움)
+```
+
+| 테스트 | 검증 내용 |
+|---|---|
+| 재전송 멱등 | 같은 `clientEventId` → 같은 seq, 저장 1건 |
+| 같은 키 다른 내용 | 409 |
+| 종료 후 재전송 | 중복 확인이 검증보다 먼저 → 최초 결과 반환 |
+| 동시 전송 20개 | seq 빈틈·중복 없음 |
+| 동시 재전송 20개 | 1건만 저장, 모두 같은 seq |
+| 복원 결정성 | 모든 시점에서 2회 복원 결과 동일 |
+| 프로젝션 = 리플레이 | 참여자 테이블이 이벤트 리플레이 결과와 일치 (상태 테이블은 이벤트로 재생성 가능) |
+
+**테스트 DB로 H2를 쓰지 않은 이유**: 핵심 검증 대상인 `SELECT … FOR UPDATE` 락 동작, JSON 컬럼, MySQL용 Flyway 스크립트가 H2에서는 다르게 동작한다. 운영과 같은 엔진(MySQL 8.4)으로 검증해야 동시성 테스트를 신뢰할 수 있다.
+테스트 클래스에 `@Transactional`을 붙이지 않은 이유: 동시성 테스트의 각 스레드가 커밋된 데이터를 봐야 하고, `AFTER_COMMIT` 흐름도 운영과 같게 실행되어야 하기 때문. 대신 테스트마다 새 세션을 만들어 격리한다.
+
 ### 동시성·중복 재현 스크립트
 
 ```bash
@@ -88,7 +107,7 @@ websocat "ws://localhost:8080/ws?sessionId=$SID&userId=bob&lastSeq=3"   # 재연
 | 부하 테스트 | ⏳ |
 | 메트릭 대시보드 | ⏳ |
 | 통신 방식 비교 | ✅ [문서](docs/07-communication.md) |
-| 테스트 전략 (재현 스크립트, 통합 테스트) | 🟡 재현 스크립트 완료, 통합 테스트 예정 |
+| 테스트 전략 (재현 스크립트, 통합 테스트) | ✅ Testcontainers(MySQL 8.4) 통합 테스트 7개 + 동시성 재현 스크립트 |
 
 ## 문서
 
@@ -99,7 +118,7 @@ websocat "ws://localhost:8080/ws?sessionId=$SID&userId=bob&lastSeq=3"   # 재연
 | [02 API 명세](docs/02-api-spec.md) | REST, WebSocket 프로토콜 ([OpenAPI](docs/openapi.yaml)) |
 | [03 순서·중복 처리](docs/03-ordering-and-idempotency.md) | seq 기준, 멱등 처리, **검증 결과** |
 | [04 상태 복원](docs/04-state-restoration.md) | 스냅샷 + 리플레이, 결정성 |
-| [05 쿼리 최적화](docs/05-query-optimization.md) | 핫패스 쿼리, 인덱스, 병목 |
+| [05 쿼리 최적화](docs/05-query-optimization.md) | 핵심 쿼리 3개의 EXPLAIN 실측, 인덱스 근거, 병목과 개선안 |
 | [06 운영 설계](docs/06-operations.md) | 실시간 전달, 재연결, 확장, 관측, 비동기, 장애 대응 |
 | [07 통신 방식 비교](docs/07-communication.md) | WebSocket, SSE, STOMP, WebRTC |
 
