@@ -108,7 +108,8 @@ restore(sessionId, targetSeq):
   (`alice JOINED ONLINE last_applied_seq=2`, `bob LEFT OFFLINE last_applied_seq=0`)
   → 프로젝션 테이블은 이벤트만으로 재생성 가능한 파생 데이터임을 확인
 
+**자동화**: `EventSourcingIntegrationTest`의 `restoreIsDeterministic`(seq 0~6 전 구간 2회 복원 비교), `projectionMatchesReplay`(참여자 테이블 = 리플레이 결과)로 위 검증을 `./gradlew test`에 포함했다.
+
 ## 4.7 남은 작업
 - 스냅샷 + 리플레이 (4.2~4.4) 구현 후, 같은 targetSeq에 대해 전체 리플레이 결과와 동일한지 비교 테스트
 - 메시지 수정/삭제 이벤트(`EDITED`/`DELETED`)는 현재 이벤트 타입에 없어 범위 외. 추가 시 `messageId`(= 최초 clientEventId) 기준으로 `apply`에 반영
-- JUnit 통합 테스트로 위 검증 자동화

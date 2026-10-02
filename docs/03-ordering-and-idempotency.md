@@ -113,6 +113,30 @@ B: UPDATE chat_session → 배타(X) 락 필요 → A의 S 락 대기  → 데�
 | 같은 메시지 재전송 | ACK (`duplicate: true`, 같은 seq), **상대에게는 전달 안 됨** |
 | 서버 전용 타입(`DISCONNECTED`) | ERROR |
 
+### 자동화된 검증 (JUnit + Testcontainers)
+
+`EventSourcingIntegrationTest`가 위 시나리오를 MySQL 8.4 컨테이너에서 재현한다. 동시성 테스트는 `CountDownLatch`로 20개 스레드를 **동시에 출발**시켜 실제 경합을 만든다.
+
+| 테스트 | 결과 |
+|---|---|
+| 동시 전송 20개 → seq 3~22 빈틈·중복 없음, `last_seq = 22` | ✅ |
+| 같은 이벤트 동시 재전송 20개 → 신규 1건, 나머지 19건 duplicate, 모두 seq 3 | ✅ |
+| 재전송 멱등 / 같은 키 다른 내용 409 / 종료 후 재전송 200 | ✅ |
+
+### 락 제거 실험 (테스트가 실제로 락을 검증하는지 확인)
+
+`ChatSessionRepository.findByIdForUpdate`의 `@Lock(PESSIMISTIC_WRITE)`만 제거하고 같은 테스트를 실행했다.
+
+| 테스트 | 락 있음 | 락 제거 | 실패 원인 |
+|---|---|---|---|
+| 동시 전송 20개 | ✅ | ❌ | 여러 트랜잭션이 같은 `last_seq`를 읽어 같은 seq(3)를 발급 → `Duplicate entry '…-3' for key 'uk_event_seq'` |
+| 동시 재전송 20개 | ✅ | ❌ | 모두 "중복 없음"으로 판단하고 INSERT 경쟁 → `Deadlock found when trying to get lock` (`CannotAcquireLockException`) |
+
+**해석**
+- 락이 없어도 **잘못된 데이터는 저장되지 않았다.** UNIQUE 제약(`uk_event_seq`, `uk_event_client_id`)이 최후 방어선으로 막았다.
+- 하지만 정상 요청이 **실패 응답**을 받는다. 클라이언트 입장에서는 "보냈는데 실패"가 되어 재시도 폭주로 이어진다.
+- 즉 **UNIQUE 제약은 정합성(잘못 저장되지 않음)을, 비관적 락은 정상 처리(모든 요청이 올바른 응답을 받음)를 책임진다.** 둘 다 필요하다(D7).
+- 이 실험으로 동시성 테스트가 락의 존재를 실제로 검증하고 있음을 확인했다(락을 빼면 테스트가 잡아낸다).
+
 ## 3.7 남은 작업
 - server_ts 단조 보정 (D8)
-- JUnit 통합 테스트로 위 검증을 자동화
