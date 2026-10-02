@@ -1,0 +1,787 @@
+openapi: 3.1.0
+info:
+  title: 1:1 Chat Event Sourcing API
+  description: |
+    모든 상태 변경은 세션 단위 이벤트(seq)로 저장되며, 이벤트 리플레이로 특정 시점 상태를 복원한다.
+
+    **멱등성**: 같은 `clientEventId` 재전송 시 최초 결과를 `200` + `Idempotent-Replayed: true`로 반환.
+    **순서**: 서버가 세션별로 발급하는 `seq`가 유일한 순서 기준.
+
+    **WebSocket** (OpenAPI 범위 밖): `ws://{host}/ws?sessionId=&userId=&lastSeq=`
+    서버 메시지 `{kind: ACK|EVENT|ERROR|RESUME, data}` — 상세는 docs/02-api-spec.md
+  version: v1
+servers:
+- url: http://localhost:8080
+  description: Generated server url
+tags:
+- name: Session
+  description: "세션 생성·입장·퇴장·종료, 시점 복원"
+- name: Event
+  description: "이벤트 수집·조회 (멱등, seq 순서)"
+paths:
+  /sessions:
+    post:
+      tags:
+      - Session
+      summary: 세션 생성
+      description: SESSION_STARTED 이벤트(seq 1)를 기록하고 참여자 2명을 LEFT/OFFLINE으로 생성
+      operationId: create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+  /sessions/{sessionId}/leave:
+    post:
+      tags:
+      - Session
+      summary: 퇴장
+      description: LEFT 이벤트 기록. 연결은 유지됨. 응답 코드는 POST /events와 동일
+      operationId: leave
+      parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ParticipantSessionRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/EventResponse"
+  /sessions/{sessionId}/join:
+    post:
+      tags:
+      - Session
+      summary: 입장
+      description: JOINED 이벤트 기록. 응답 코드는 POST /events와 동일 (멱등)
+      operationId: join
+      parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ParticipantSessionRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/EventResponse"
+  /sessions/{sessionId}/events:
+    get:
+      tags:
+      - Event
+      summary: 이벤트 증분 조회
+      description: afterSeq보다 큰 이벤트를 seq 오름차순으로 반환 (최대 500). 재연결 동기화에 사용.
+      operationId: getEvents
+      parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: afterSeq
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          default: 0
+      - name: size
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 100
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EventResponse"
+    post:
+      tags:
+      - Event
+      summary: 이벤트 수집
+      description: 세션 락 → 중복 확인 → 검증 → 저장 순서로 처리한다. 같은 clientEventId 재전송은 최초 결과를 그대로
+        반환한다.
+      operationId: append
+      parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppendEventRequest"
+        required: true
+      responses:
+        "201":
+          description: 신규 저장
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/EventResponse"
+        "200":
+          description: 중복 재전송 — 최초 결과 반환
+          headers:
+            Idempotent-Replayed:
+              description: "true"
+              style: simple
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/EventResponse"
+        "400":
+          description: 참여자 아님 / 서버 전용 타입 / 입력 오류
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: 세션 없음
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: 같은 clientEventId에 다른 내용 / 종료된 세션 / JOINED 아님
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: 락 대기 초과 — 같은 clientEventId로 재시도하면 안전
+          headers:
+            Retry-After:
+              description: 초
+              style: simple
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /sessions/{sessionId}/end:
+    post:
+      tags:
+      - Session
+      summary: 세션 종료
+      description: SESSION_ENDED 기록 후 모든 WebSocket 연결 종료. 이후 이벤트는 409
+      operationId: end
+      parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ParticipantSessionRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/EventResponse"
+  /sessions/{sessionId}:
+    get:
+      tags:
+      - Session
+      summary: 세션 조회
+      operationId: get
+      parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+  /sessions/{sessionId}/timeline:
+    get:
+      tags:
+      - Session
+      summary: 특정 시점 상태 복원
+      description: 이벤트를 seq 순으로 리플레이해 상태를 계산한다. 파라미터가 없으면 현재 상태. atSeq와 at은 동시에 지정할
+        수 없다.
+      operationId: timeline
+      parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: atSeq
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: at
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/TimelineResponse"
+components:
+  schemas:
+    CreateSessionRequest:
+      type: object
+      properties:
+        participantA:
+          type: string
+          maxLength: 64
+          minLength: 0
+        participantB:
+          type: string
+          maxLength: 64
+          minLength: 0
+      required:
+      - participantA
+      - participantB
+    SessionResponse:
+      type: object
+      properties:
+        sessionId:
+          type: string
+        participantA:
+          type: string
+        participantB:
+          type: string
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - INTERRUPTED
+          - COMPLETED
+        lastSeq:
+          type: integer
+          format: int64
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+    ParticipantSessionRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+          maxLength: 64
+          minLength: 0
+        clientEventId:
+          type: string
+          maxLength: 64
+          minLength: 0
+      required:
+      - clientEventId
+      - userId
+    EventResponse:
+      type: object
+      properties:
+        eventId:
+          type: integer
+          format: int64
+        sessionId:
+          type: string
+        seq:
+          type: integer
+          format: int64
+        clientEventId:
+          type: string
+        type:
+          type: string
+          enum:
+          - SESSION_STARTED
+          - JOINED
+          - LEFT
+          - MESSAGE_SENT
+          - DISCONNECTED
+          - RECONNECTED
+          - SESSION_ENDED
+        userId:
+          type: string
+        payload:
+          type: object
+          additionalProperties: {}
+        clientTs:
+          type: string
+          format: date-time
+        serverTs:
+          type: string
+          format: date-time
+    AppendEventRequest:
+      type: object
+      properties:
+        clientEventId:
+          type: string
+          maxLength: 64
+          minLength: 0
+        type:
+          type: string
+          enum:
+          - SESSION_STARTED
+          - JOINED
+          - LEFT
+          - MESSAGE_SENT
+          - DISCONNECTED
+          - RECONNECTED
+          - SESSION_ENDED
+        userId:
+          type: string
+          maxLength: 64
+          minLength: 0
+        payload:
+          type: object
+          additionalProperties: {}
+        clientTs:
+          type: string
+          format: date-time
+      required:
+      - clientEventId
+      - type
+      - userId
+    ContentDisposition:
+      type: object
+      properties:
+        type:
+          type: string
+        name:
+          type: string
+        filename:
+          type: string
+        charset:
+          type: string
+        inline:
+          type: boolean
+        attachment:
+          type: boolean
+        formData:
+          type: boolean
+    DefaultHttpStatusCode:
+      allOf:
+      - $ref: "#/components/schemas/HttpStatusCode"
+    ErrorResponse:
+      type: object
+      properties:
+        detailMessageArguments:
+          type: array
+          items: {}
+        headers:
+          $ref: "#/components/schemas/HttpHeaders"
+        body:
+          $ref: "#/components/schemas/ProblemDetail"
+        statusCode:
+          oneOf:
+          - $ref: "#/components/schemas/DefaultHttpStatusCode"
+          - $ref: "#/components/schemas/HttpStatus"
+        typeMessageCode:
+          type: string
+        detailMessageCode:
+          type: string
+        titleMessageCode:
+          type: string
+    HttpHeaders:
+      type: object
+      properties:
+        accessControlAllowCredentials:
+          type: boolean
+        accessControlAllowOrigin:
+          type: string
+        accessControlAllowMethods:
+          type: array
+          items:
+            $ref: "#/components/schemas/HttpMethod"
+        accessControlAllowHeaders:
+          type: array
+          items:
+            type: string
+        accessControlExposeHeaders:
+          type: array
+          items:
+            type: string
+        accessControlRequestMethod:
+          $ref: "#/components/schemas/HttpMethod"
+        accessControlRequestHeaders:
+          type: array
+          items:
+            type: string
+        acceptLanguageAsLocales:
+          type: array
+          items:
+            type: string
+        connection:
+          type: array
+          items:
+            type: string
+        origin:
+          type: string
+        contentType:
+          $ref: "#/components/schemas/MediaType"
+        range:
+          type: array
+          items:
+            $ref: "#/components/schemas/HttpRange"
+        ifModifiedSince:
+          type: integer
+          format: int64
+        contentLength:
+          type: integer
+          format: int64
+        contentDisposition:
+          $ref: "#/components/schemas/ContentDisposition"
+        acceptCharset:
+          type: array
+          items:
+            type: string
+        location:
+          type: string
+          format: uri
+        host:
+          type: object
+          properties:
+            hostString:
+              type: string
+            address:
+              type: object
+              properties:
+                hostAddress:
+                  type: string
+                address:
+                  type: string
+                  format: byte
+                hostName:
+                  type: string
+                linkLocalAddress:
+                  type: boolean
+                anyLocalAddress:
+                  type: boolean
+                multicastAddress:
+                  type: boolean
+                loopbackAddress:
+                  type: boolean
+                siteLocalAddress:
+                  type: boolean
+                mcglobal:
+                  type: boolean
+                mcnodeLocal:
+                  type: boolean
+                mclinkLocal:
+                  type: boolean
+                mcsiteLocal:
+                  type: boolean
+                mcorgLocal:
+                  type: boolean
+                canonicalHostName:
+                  type: string
+            port:
+              type: integer
+              format: int32
+            unresolved:
+              type: boolean
+            hostName:
+              type: string
+        cacheControl:
+          type: string
+        contentLanguage:
+          type: string
+        etag:
+          type: string
+        allow:
+          type: array
+          items:
+            $ref: "#/components/schemas/HttpMethod"
+          uniqueItems: true
+        upgrade:
+          type: string
+        accept:
+          type: array
+          items:
+            $ref: "#/components/schemas/MediaType"
+        accessControlMaxAge:
+          type: integer
+          format: int64
+        acceptPatch:
+          type: array
+          items:
+            $ref: "#/components/schemas/MediaType"
+        basicAuth:
+          type: string
+          writeOnly: true
+        bearerAuth:
+          type: string
+          writeOnly: true
+        expires:
+          type: integer
+          format: int64
+        ifMatch:
+          type: array
+          items:
+            type: string
+        acceptLanguage:
+          type: array
+          items:
+            type: object
+            properties:
+              range:
+                type: string
+              weight:
+                type: number
+                format: double
+        ifUnmodifiedSince:
+          type: integer
+          format: int64
+        ifNoneMatch:
+          type: array
+          items:
+            type: string
+        pragma:
+          type: string
+        vary:
+          type: array
+          items:
+            type: string
+        empty:
+          type: boolean
+        all:
+          type: object
+          additionalProperties:
+            type: string
+          writeOnly: true
+        lastModified:
+          type: integer
+          format: int64
+        date:
+          type: integer
+          format: int64
+    HttpMethod: {}
+    HttpRange: {}
+    HttpStatus:
+      allOf:
+      - $ref: "#/components/schemas/HttpStatusCode"
+      enum:
+      - 100 CONTINUE
+      - 101 SWITCHING_PROTOCOLS
+      - 102 PROCESSING
+      - 103 EARLY_HINTS
+      - 200 OK
+      - 201 CREATED
+      - 202 ACCEPTED
+      - 203 NON_AUTHORITATIVE_INFORMATION
+      - 204 NO_CONTENT
+      - 205 RESET_CONTENT
+      - 206 PARTIAL_CONTENT
+      - 207 MULTI_STATUS
+      - 208 ALREADY_REPORTED
+      - 226 IM_USED
+      - 300 MULTIPLE_CHOICES
+      - 301 MOVED_PERMANENTLY
+      - 302 FOUND
+      - 303 SEE_OTHER
+      - 304 NOT_MODIFIED
+      - 307 TEMPORARY_REDIRECT
+      - 308 PERMANENT_REDIRECT
+      - 400 BAD_REQUEST
+      - 401 UNAUTHORIZED
+      - 402 PAYMENT_REQUIRED
+      - 403 FORBIDDEN
+      - 404 NOT_FOUND
+      - 405 METHOD_NOT_ALLOWED
+      - 406 NOT_ACCEPTABLE
+      - 407 PROXY_AUTHENTICATION_REQUIRED
+      - 408 REQUEST_TIMEOUT
+      - 409 CONFLICT
+      - 410 GONE
+      - 411 LENGTH_REQUIRED
+      - 412 PRECONDITION_FAILED
+      - 413 CONTENT_TOO_LARGE
+      - 413 PAYLOAD_TOO_LARGE
+      - 414 URI_TOO_LONG
+      - 415 UNSUPPORTED_MEDIA_TYPE
+      - 416 REQUESTED_RANGE_NOT_SATISFIABLE
+      - 417 EXPECTATION_FAILED
+      - 418 I_AM_A_TEAPOT
+      - 421 MISDIRECTED_REQUEST
+      - 422 UNPROCESSABLE_CONTENT
+      - 422 UNPROCESSABLE_ENTITY
+      - 423 LOCKED
+      - 424 FAILED_DEPENDENCY
+      - 425 TOO_EARLY
+      - 426 UPGRADE_REQUIRED
+      - 428 PRECONDITION_REQUIRED
+      - 429 TOO_MANY_REQUESTS
+      - 431 REQUEST_HEADER_FIELDS_TOO_LARGE
+      - 451 UNAVAILABLE_FOR_LEGAL_REASONS
+      - 500 INTERNAL_SERVER_ERROR
+      - 501 NOT_IMPLEMENTED
+      - 502 BAD_GATEWAY
+      - 503 SERVICE_UNAVAILABLE
+      - 504 GATEWAY_TIMEOUT
+      - 505 HTTP_VERSION_NOT_SUPPORTED
+      - 506 VARIANT_ALSO_NEGOTIATES
+      - 507 INSUFFICIENT_STORAGE
+      - 508 LOOP_DETECTED
+      - 509 BANDWIDTH_LIMIT_EXCEEDED
+      - 510 NOT_EXTENDED
+      - 511 NETWORK_AUTHENTICATION_REQUIRED
+    HttpStatusCode:
+      type: object
+      properties:
+        is4xxClientError:
+          type: boolean
+        is5xxServerError:
+          type: boolean
+        is1xxInformational:
+          type: boolean
+        is2xxSuccessful:
+          type: boolean
+        is3xxRedirection:
+          type: boolean
+        error:
+          type: boolean
+    MediaType:
+      type: object
+      properties:
+        type:
+          type: string
+        subtype:
+          type: string
+        parameters:
+          type: object
+          additionalProperties:
+            type: string
+        qualityValue:
+          type: number
+          format: double
+        charset:
+          type: string
+        concrete:
+          type: boolean
+        wildcardType:
+          type: boolean
+        wildcardSubtype:
+          type: boolean
+        subtypeSuffix:
+          type: string
+    ProblemDetail:
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+        properties:
+          type: object
+          additionalProperties: {}
+    MessageView:
+      type: object
+      properties:
+        messageId:
+          type: string
+        seq:
+          type: integer
+          format: int64
+        senderId:
+          type: string
+        text:
+          type: string
+        sentAt:
+          type: string
+          format: date-time
+    ParticipantView:
+      type: object
+      properties:
+        userId:
+          type: string
+        state:
+          type: string
+          enum:
+          - NOT_JOINED
+          - JOINED
+          - LEFT
+        presence:
+          type: string
+          enum:
+          - ONLINE
+          - OFFLINE
+    TimelineResponse:
+      type: object
+      properties:
+        sessionId:
+          type: string
+        restoredAtSeq:
+          type: integer
+          format: int64
+        lastEventAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - INTERRUPTED
+          - COMPLETED
+        participants:
+          type: array
+          items:
+            $ref: "#/components/schemas/ParticipantView"
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessageView"

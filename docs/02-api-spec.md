@@ -1,6 +1,9 @@
 # 2. API 명세
 
-> OpenAPI(Swagger UI)는 springdoc 적용 후 `/swagger-ui.html`에서 제공 예정. 이 문서는 사람이 읽기 위한 요약이다.
+> **OpenAPI 명세**: [`docs/openapi.yaml`](openapi.yaml) (springdoc으로 코드에서 생성)
+> 서버 실행 중에는 Swagger UI `http://localhost:8080/swagger-ui.html`, 원본 JSON `/v3/api-docs`.
+> 명세 갱신: `curl -s localhost:8080/v3/api-docs.yaml -o docs/openapi.yaml`
+> 이 문서는 사람이 읽기 위한 요약이며, OpenAPI로 표현할 수 없는 **WebSocket 프로토콜**은 2.3절에 정리한다.
 
 ## 2.1 REST API
 

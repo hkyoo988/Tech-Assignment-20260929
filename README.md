@@ -9,6 +9,7 @@
 | 언어/프레임워크 | Java 21, Spring Boot 4 | LTS, WebSocket·JPA·검증·Actuator 기본 제공 |
 | DB | MySQL 8.4 (InnoDB) | 행 단위 비관적 락(`FOR UPDATE`), UNIQUE 제약, JSON 타입으로 **순서·중복 보장을 DB 수준에서 강제** |
 | ORM | Spring Data JPA (Hibernate) | 도메인 규칙을 엔티티 메서드로 캡슐화, 변경 감지 |
+| API 문서 | springdoc-openapi (Swagger UI) | 코드에서 명세를 생성해 구현과 문서가 어긋나지 않음 |
 | 스키마 관리 | Flyway | 스키마를 코드와 함께 버전 관리. JPA는 `ddl-auto: validate`로 엔티티-스키마 불일치를 시작 시점에 검출 |
 | 실시간 통신 | Spring WebSocket (순수 WebSocket + JSON) | ACK·재전송·재연결 동기화 프로토콜을 직접 설계하기 위해 STOMP 대신 선택 ([비교](docs/07-communication.md)) |
 
@@ -19,6 +20,8 @@ docker compose up -d                  # MySQL 8.4
 ./gradlew bootRun                     # 앱 실행 (Flyway가 테이블 생성)
 curl localhost:8080/actuator/health   # {"status":"UP"}
 ```
+
+API 문서: Swagger UI `http://localhost:8080/swagger-ui.html` / OpenAPI 명세 파일 [`docs/openapi.yaml`](docs/openapi.yaml)
 
 ### 빠른 동작 확인
 
@@ -93,7 +96,7 @@ websocat "ws://localhost:8080/ws?sessionId=$SID&userId=bob&lastSeq=3"   # 재연
 |---|---|
 | [00 설계 결정 목록](docs/00-decisions.md) | 결정, 대안, 상태 |
 | [01 도메인·ERD·DDL](docs/01-domain-and-erd.md) | 테이블, 인덱스 근거, 정규화/JSON 트레이드오프 |
-| [02 API 명세](docs/02-api-spec.md) | REST, WebSocket 프로토콜 |
+| [02 API 명세](docs/02-api-spec.md) | REST, WebSocket 프로토콜 ([OpenAPI](docs/openapi.yaml)) |
 | [03 순서·중복 처리](docs/03-ordering-and-idempotency.md) | seq 기준, 멱등 처리, **검증 결과** |
 | [04 상태 복원](docs/04-state-restoration.md) | 스냅샷 + 리플레이, 결정성 |
 | [05 쿼리 최적화](docs/05-query-optimization.md) | 핫패스 쿼리, 인덱스, 병목 |
