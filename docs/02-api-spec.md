@@ -13,7 +13,7 @@
 | POST | `/sessions/{id}/end` | 종료 (`SESSION_ENDED`, status → COMPLETED) | ✅ |
 | POST | `/sessions/{id}/events` | 이벤트/메시지 수집 (멱등) | ✅ |
 | GET | `/sessions/{id}/events?afterSeq=&size=` | 이벤트 증분 조회 (재연결 동기화·디버깅) | ✅ |
-| GET | `/sessions/{id}/timeline?at=` / `?atSeq=` | 특정 시점 상태 복원 | 예정 |
+| GET | `/sessions/{id}/timeline?at=` / `?atSeq=` | 특정 시점 상태 복원 (이벤트 리플레이) | ✅ |
 | GET | `/sessions?status=&participant=&from=&to=` | 세션 목록 | 예정 |
 | POST | `/sessions/{id}/snapshots` | 스냅샷 수동 생성 | 예정 (선택) |
 
@@ -69,6 +69,39 @@ join / leave / end는 전용 엔드포인트지만 내부적으로 **`POST /even
 
 > 시각은 모두 UTC로 저장·응답한다. (응답 형식에 `Z` 표기를 추가하는 작업은 예정)
 
+### 복원 `GET /sessions/{id}/timeline`
+
+| 파라미터 | 의미 |
+|---|---|
+| `atSeq` | 이 seq까지 적용한 상태 |
+| `at` | ISO-8601 시각, **오프셋 필수** (`2026-10-02T01:57:00Z`). 이 시각 이전 마지막 이벤트까지 적용 |
+| (없음) | 현재 상태 |
+
+```json
+// GET /sessions/{id}/timeline?atSeq=3   → 200
+{
+  "sessionId": "3ef1…",
+  "restoredAtSeq": 3,
+  "lastEventAt": "2026-10-02T01:57:00.317155",
+  "status": "ACTIVE",
+  "participants": [
+    { "userId": "alice", "state": "JOINED", "presence": "ONLINE" },
+    { "userId": "bob",   "state": "LEFT",   "presence": "OFFLINE" }
+  ],
+  "messages": [
+    { "messageId": "m-1", "seq": 3, "senderId": "alice", "text": "hi", "sentAt": "2026-10-02T01:57:00.317155" }
+  ]
+}
+```
+
+| 상황 | 상태 코드 |
+|---|---|
+| 세션 시작 이전 시점 | 200, `restoredAtSeq: 0`, `status: null`, 빈 목록 |
+| `atSeq`와 `at` 동시 지정, `atSeq < 0`, 시각 형식 오류 | 400 |
+| 세션 없음 | 404 |
+
+> `at`에 `+09:00`을 쓸 때는 URL에서 `+`가 공백으로 해석되므로 `%2B09:00`으로 인코딩해야 한다.
+
 ### 이벤트 조회 `GET /sessions/{id}/events?afterSeq=3&size=100`
 seq 오름차순 배열. `size` 최대 500.
 
@@ -84,7 +117,7 @@ seq 오름차순 배열. `size` 최대 500.
 ws://localhost:8080/ws?sessionId={sessionId}&userId={userId}[&lastSeq={n}]
 ```
 - 발신자는 **연결 시점의 userId**로 식별한다. 메시지 본문의 userId는 받지 않는다.
-- `lastSeq`: 재연결 시 마지막으로 받은 seq (재연결 동기화, 구현 예정)
+- `lastSeq`: 재연결 시 마지막으로 받은 seq. 이후 이벤트를 RESUME으로 받는다 (생략 시 0)
 
 ### 클라이언트 → 서버
 ```json
@@ -97,7 +130,7 @@ ws://localhost:8080/ws?sessionId={sessionId}&userId={userId}[&lastSeq={n}]
 { "kind": "ACK",    "data": { "clientEventId": "a2", "seq": 4, "serverTs": "…", "duplicate": false } }
 { "kind": "EVENT",  "data": { /* 이벤트 수집 응답과 같은 형식 */ } }
 { "kind": "ERROR",  "data": { "clientEventId": "a2", "code": "CONFLICT", "message": "…" } }
-{ "kind": "RESUME", "data": { "events": [ … ], "hasMore": false } }   // 구현 예정
+{ "kind": "RESUME", "data": { "events": [ … ], "hasMore": false } }
 ```
 
 | kind | 받는 사람 | 시점 |
@@ -105,7 +138,7 @@ ws://localhost:8080/ws?sessionId={sessionId}&userId={userId}[&lastSeq={n}]
 | `ACK` | 보낸 사람 | 저장(또는 중복 확인) 완료 후 |
 | `EVENT` | 보낸 사람을 **제외한** 세션의 연결 | 트랜잭션 **커밋 후** |
 | `ERROR` | 보낸 사람 | 검증 실패 등 |
-| `RESUME` | 재연결한 사람 | 연결 직후, `lastSeq` 이후 이벤트 (예정) |
+| `RESUME` | 재연결한 사람 | 연결 직후, `lastSeq` 이후 이벤트 (최대 500건) |
 
 재전송(`duplicate: true`)은 새 이벤트가 저장되지 않으므로 상대에게 `EVENT`가 가지 않는다.
 

@@ -34,8 +34,13 @@ curl -s -X POST localhost:8080/sessions/$SID/join -H "Content-Type: application/
 curl -s -X POST localhost:8080/sessions/$SID/events -H "Content-Type: application/json" \
   -d '{"clientEventId":"a-msg-1","type":"MESSAGE_SENT","userId":"alice","payload":{"text":"안녕"}}'
 
+# 특정 시점 상태 복원
+curl -s "localhost:8080/sessions/$SID/timeline?atSeq=2"
+curl -s "localhost:8080/sessions/$SID/timeline"            # 현재 상태
+
 # 실시간 (websocat 필요: brew install websocat)
 websocat "ws://localhost:8080/ws?sessionId=$SID&userId=bob"
+websocat "ws://localhost:8080/ws?sessionId=$SID&userId=bob&lastSeq=3"   # 재연결: seq 3 이후를 RESUME으로 수신
 ```
 
 ### 동시성·중복 재현 스크립트
@@ -56,6 +61,8 @@ websocat "ws://localhost:8080/ws?sessionId=$SID&userId=bob"
 | 실시간 전달 | 트랜잭션 **커밋 후** 상대에게 전송 | 롤백된 메시지가 상대에게 보이지 않음 |
 | 전송 방식 | REST와 WebSocket이 같은 서비스 메서드 사용 | 입구와 무관하게 같은 규칙 적용 |
 | 참여자 상태 | 이벤트에서 파생된 프로젝션 테이블 | 현재 상태를 리플레이 없이 조회. `last_applied_seq`로 멱등 반영 |
+| 재연결 | 클라이언트가 `lastSeq`를 보내고, 서버는 연결 등록 **후** 그 이후 이벤트를 RESUME | 등록→조회 순서라 누락 없음(중복은 seq로 제거) |
+| 시점 복원 | 시각도 seq로 변환한 뒤 seq 순 리플레이, `apply()`는 순수 함수 | 같은 입력이면 언제 복원해도 같은 결과 |
 
 전체 목록: [설계 결정 목록](docs/00-decisions.md)
 
@@ -65,11 +72,11 @@ websocat "ws://localhost:8080/ws?sessionId=$SID&userId=bob"
 |---|---|---|
 | 실시간 메시지 송수신 | ✅ | WebSocket, 커밋 후 상대 전달 |
 | join / leave 처리 | ✅ | REST 전용 API + WebSocket |
-| presence (online/offline) | ⏳ | 연결/끊김 이벤트 기록, 재연결 동기화 진행 중 |
+| presence (online/offline) | ✅ | 연결/끊김을 `DISCONNECTED`/`RECONNECTED` 이벤트로 기록, 재연결 시 `lastSeq` 이후 이벤트 RESUME |
 | 이벤트·메시지 수집 API | ✅ | `POST /sessions/{id}/events` |
 | 중복 이벤트 방지 | ✅ | 재현 스크립트로 검증 |
 | 순서 뒤바뀜 처리 기준 | ✅ | 서버 seq, 재현 스크립트로 검증 |
-| 특정 시점 상태 복원 | ⏳ | 설계 완료 ([문서](docs/04-state-restoration.md)) |
+| 특정 시점 상태 복원 | ✅ | `GET /sessions/{id}/timeline?atSeq=` / `?at=`, 이벤트 리플레이. 결정성·프로젝션 일치 검증 ([문서](docs/04-state-restoration.md#46-검증-결과)) |
 
 | 가산점 항목 | 상태 |
 |---|---|
@@ -99,7 +106,8 @@ websocat "ws://localhost:8080/ws?sessionId=$SID&userId=bob"
 com.example.chat
 ├── session/    세션, 참여자 프로젝션, 세션 API (생성·입장·퇴장·종료)
 ├── event/      이벤트 저장소, 수집·조회 API, 멱등·순서 처리
-├── realtime/   WebSocket 핸들러, 연결 목록, 커밋 후 전달
+├── realtime/   WebSocket 핸들러, 연결 목록, 커밋 후 전달, 재연결 RESUME
+├── timeline/   시점 복원 (이벤트 리플레이) API
 └── common/     예외 처리, 설정, JSON 변환
 ```
 과제의 핵심 도메인(Session, Event, Snapshot)을 기준으로 패키지를 나눠, 기능 단위로 코드가 모이도록 했습니다.

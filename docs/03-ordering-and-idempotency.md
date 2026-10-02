@@ -114,6 +114,5 @@ B: UPDATE chat_session → 배타(X) 락 필요 → A의 S 락 대기  → 데�
 | 서버 전용 타입(`DISCONNECTED`) | ERROR |
 
 ## 3.7 남은 작업
-- REST 경로에서도 `DISCONNECTED`/`RECONNECTED` 수신 거부 (현재는 WebSocket만 거부)
 - server_ts 단조 보정 (D8)
 - JUnit 통합 테스트로 위 검증을 자동화
