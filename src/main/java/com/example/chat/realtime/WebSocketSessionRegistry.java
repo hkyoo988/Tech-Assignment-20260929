@@ -23,10 +23,15 @@ public class WebSocketSessionRegistry {
     public void register(String sessionId, String userId, WebSocketSession ws) {
         // 여러 스레드가 동시에 같은 연결로 보내도 안전하도록 감싼다 (전송 제한 5초, 버퍼 64KB)
         WebSocketSession safe = new ConcurrentWebSocketSessionDecorator(ws, 5_000, 64 * 1024);
-        WebSocketSession old = connections.computeIfAbsent(sessionId, k -> new ConcurrentHashMap<>()).put(userId, safe);
+        WebSocketSession old = connections.computeIfAbsent(sessionId,
+            k -> new ConcurrentHashMap<>()).put(userId, safe);
         if (old != null) {
-            try { old.close(CloseStatus.POLICY_VIOLATION.withReason("다른 곳에서 접속했습니다")); } catch (Exception ignored) {}
-        }    }
+            try {
+                old.close(CloseStatus.POLICY_VIOLATION.withReason("다른 곳에서 접속했습니다"));
+            } catch (Exception ignored) {
+            }
+        }
+    }
 
     public boolean unregister(String sessionId, String userId, WebSocketSession ws) {
         Map<String, WebSocketSession> users = connections.get(sessionId);

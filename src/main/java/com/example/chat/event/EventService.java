@@ -119,7 +119,7 @@ public class EventService {
 		}
 		int limit = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 		return eventRepository
-			.findBySessionIdAndSeqGreaterThanOrderBySeqAsc(sessionId, afterSeq,
+				.findBySessionIdAndSeqGreaterThanOrderBySeqAsc(sessionId, afterSeq,
 				PageRequest.of(0, limit))
 			.stream().map(EventResponse::from).toList();
 	}

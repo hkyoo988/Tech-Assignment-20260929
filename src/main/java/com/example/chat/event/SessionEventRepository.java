@@ -14,8 +14,9 @@ public interface SessionEventRepository extends JpaRepository<SessionEvent, Long
 
 	Optional<SessionEvent> findBySessionIdAndClientEventId(String sessionId, String clientEventId);
 
-	List<SessionEvent> findBySessionIdAndSeqLessThanEqualOrderBySeqAsc(String sessionId, long seq);
-
 	Optional<SessionEvent> findTopBySessionIdAndServerTsLessThanEqualOrderBySeqDesc(
         String sessionId, LocalDateTime at);
+
+	List<SessionEvent> findBySessionIdAndSeqGreaterThanAndSeqLessThanEqualOrderBySeqAsc(
+		String sessionId, long afterSeq, long toSeq);
 }

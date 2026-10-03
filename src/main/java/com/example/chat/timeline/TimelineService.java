@@ -10,32 +10,52 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.json.JsonMapper;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class TimelineService {
 
     private final ChatSessionRepository sessionRepository;
     private final SessionEventRepository eventRepository;
+    private final SnapshotRepository snapshotRepository;
+    private final JsonMapper jsonMapper;
 
-    /**
-     * targetSeq 시점의 세션 상태를 이벤트 리플레이로 계산한다.
-     * 같은 targetSeq면 언제 호출해도 같은 결과 (결정성).
-     */
     @Transactional(readOnly = true)
     public SessionState loadState(String sessionId, long targetSeq) {
+        return loadState(sessionId, targetSeq, true);
+    }
+
+    /** useSnapshot=false면 항상 처음부터 리플레이 (스냅샷 검증·비교용) */
+    @Transactional(readOnly = true)
+    public SessionState loadState(String sessionId, long targetSeq, boolean useSnapshot) {
         if (!sessionRepository.existsById(sessionId)) {
             throw new NotFoundException("세션이 없습니다: " + sessionId);
         }
 
-        // ① seq ≤ targetSeq 이벤트를 seq 순서로
-        List<SessionEvent> events =
-                eventRepository.findBySessionIdAndSeqLessThanEqualOrderBySeqAsc(sessionId, targetSeq);
-
-        // ② 빈 상태에서 시작해 ③ 하나씩 적용
         SessionState state = SessionState.empty(sessionId);
+        long fromSeq = 0;
+
+        if (useSnapshot) {
+            var snap = snapshotRepository.findLatest(sessionId, targetSeq).orElse(null);
+            if (snap != null) {
+                try {
+                    state = SessionState.fromSnapshot(jsonMapper.readValue(snap.stateJson(), SessionState.Snapshot.class));
+                    fromSeq = snap.seq();
+                } catch (Exception ex) {
+                    log.warn("[스냅샷 읽기 실패] sessionId={}, seq={} — 전체 리플레이로 대체", sessionId, snap.seq(), ex);
+                    state = SessionState.empty(sessionId);
+                    fromSeq = 0;
+                }
+            }
+        }
+
+        List<SessionEvent> events = eventRepository
+                .findBySessionIdAndSeqGreaterThanAndSeqLessThanEqualOrderBySeqAsc(sessionId, fromSeq, targetSeq);
         for (SessionEvent e : events) {
             state.apply(e);
         }

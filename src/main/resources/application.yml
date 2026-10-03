@@ -12,6 +12,10 @@ spring:
       hibernate.jdbc.time_zone: UTC   # 시간은 전부 UTC로 저장 (서버 시각 기준 정렬이 흔들리지 않게)
   flyway:
     enabled: true
+  task:
+    execution:
+      pool:
+        queue-capacity: 1000   # 대기열에 상한을 둠
 
 management:
   endpoints:
@@ -23,3 +27,7 @@ logging:
      level:
        org.hibernate.SQL: debug
        org.hibernate.orm.jdbc.bind: trace
+
+chat:
+  snapshot:
+    interval: 100
