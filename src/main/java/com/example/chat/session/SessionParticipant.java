@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+/** 참여자 현재 상태 프로젝션. 이벤트에서 파생되며 리플레이로 언제든 다시 만들 수 있다. */
 @Entity
 @Table(name = "session_participant")
 @Getter
@@ -34,14 +35,17 @@ public class SessionParticipant {
 	@Column(nullable = false, length = 64)
 	private String userId;
 
+	// 방에 들어와 있나 (JOINED / LEFT). 사용자가 직접 입장, 퇴장해서 바뀐다
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, columnDefinition = "varchar(10)")
 	private ParticipantState state;
 
+	// 이 대화방에 지금 접속해 있나 (ONLINE / OFFLINE). 연결 끊김, 재연결로 바뀐다. 퇴장한 사람은 항상 OFFLINE
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, columnDefinition = "varchar(10)")
 	private ParticipantPresence presence;
 
+	// 마지막으로 반영한 이벤트 seq. 이 값 이하의 이벤트는 다시 반영하지 않는다 (멱등)
 	@Column(nullable = false)
 	private long lastAppliedSeq;
 

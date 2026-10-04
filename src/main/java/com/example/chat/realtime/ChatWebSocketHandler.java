@@ -28,6 +28,7 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import org.springframework.web.util.UriComponentsBuilder;
 import tools.jackson.databind.json.JsonMapper;
 
+/** WebSocket 입구. 연결 시 RESUME을 보내고, 메시지는 EventService.append()로 넘겨 REST와 같은 규칙을 적용한다. */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -56,14 +57,14 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         ws.getAttributes().put("sessionId", sessionId);
         ws.getAttributes().put("userId", userId);
 
-        // ② 등록 먼저
+        // ② 등록 먼저: 조회보다 먼저 등록해야 그사이 생긴 이벤트를 놓치지 않는다 (중복은 생겨도 누락은 없음)
         registry.register(sessionId, userId, ws);
         log.info("[연결] sessionId={}, userId={}, lastSeq={}", sessionId, userId, lastSeq);
 
         // ③ 끊겼다 돌아온 참여자면 RECONNECTED
         eventService.recordPresence(sessionId, userId, true);
 
-        // ④ 놓친 이벤트
+        // ④ 놓친 이벤트: lastSeq 이후를 RESUME으로 보낸다 (500건을 채우면 hasMore=true)
         List<EventResponse> missed = eventService.getEvents(sessionId, lastSeq, RESUME_LIMIT);
         registry.send(ws, ServerMessage.resume(new ResumeData(missed, missed.size() == RESUME_LIMIT)));
     }
@@ -110,6 +111,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         String userId = (String) ws.getAttributes().get("userId");
         if (sessionId == null || userId == null) return;
 
+        // 다른 기기로 교체되며 닫힌 옛 연결이면 false → 끊김으로 기록하지 않는다
         boolean wasCurrent = registry.unregister(sessionId, userId, ws);
         log.info("[종료] sessionId={}, userId={}, status={}, current={}", sessionId, userId, status, wasCurrent);
         if (wasCurrent) {

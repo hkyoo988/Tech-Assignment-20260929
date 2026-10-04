@@ -4,6 +4,7 @@ import com.example.chat.event.dto.EventResponse;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/** 서버 → 클라이언트 메시지. kind: ACK(보낸 사람), EVENT(상대), RESUME(재연결한 사람), ERROR(보낸 사람) */
 public record ServerMessage(String kind, Object data) {
 	public static ServerMessage ack(AckData data)      { return new ServerMessage("ACK", data); }
     public static ServerMessage error(ErrorData data)  { return new ServerMessage("ERROR", data); }

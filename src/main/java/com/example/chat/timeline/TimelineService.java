@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
+/** 시점 복원: targetSeq 이하 최신 스냅샷 + 그 이후 이벤트 리플레이. */
 @Service
 @Slf4j
 @RequiredArgsConstructor
@@ -41,12 +42,14 @@ public class TimelineService {
         long fromSeq = 0;
 
         if (useSnapshot) {
+            // targetSeq 이하 최신 스냅샷부터 시작 (없으면 빈 상태, seq 0)
             var snap = snapshotRepository.findLatest(sessionId, targetSeq).orElse(null);
             if (snap != null) {
                 try {
                     state = SessionState.fromSnapshot(jsonMapper.readValue(snap.stateJson(), SessionState.Snapshot.class));
                     fromSeq = snap.seq();
                 } catch (Exception ex) {
+                    // 스냅샷은 캐시일 뿐이라, 읽기에 실패해도 처음부터 리플레이하면 같은 결과가 나온다
                     log.warn("[스냅샷 읽기 실패] sessionId={}, seq={} — 전체 리플레이로 대체", sessionId, snap.seq(), ex);
                     state = SessionState.empty(sessionId);
                     fromSeq = 0;
@@ -76,6 +79,7 @@ public class TimelineService {
         return TimelineResponse.from(state);
     }
 
+    // 시각도 seq로 바꿔서 복원한다 (순서 기준은 seq 하나)
     private long resolveTargetSeq(String sessionId, Long atSeq, OffsetDateTime at) {
         if (atSeq != null) {
             return atSeq;

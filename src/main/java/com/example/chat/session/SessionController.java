@@ -87,6 +87,7 @@ public class SessionController {
 		return sessionService.list(participant, status, from, to, size);
 	}
 
+	// join / leave / end도 이벤트 수집과 같은 append() 경로 → 락, 멱등, 순서 규칙이 같다
 	private ResponseEntity<EventResponse> appendAs(String sessionId, ParticipantSessionRequest req, EventType type) {
 		AppendEventRequest eventReq = new AppendEventRequest(req.clientEventId(), type, req.userId(), null, null);
 		return eventService.append(sessionId, eventReq).toResponse();

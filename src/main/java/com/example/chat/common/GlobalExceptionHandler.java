@@ -40,6 +40,7 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("MALFORMED_REQUEST", "요청 본문을 해석할 수 없습니다"));
     }
 
+    // DB 제약 위반 (UNIQUE 등). 정상 흐름에서는 락 안 중복 확인 때문에 발생하지 않는다
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> integrityViolation(DataIntegrityViolationException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
@@ -52,6 +53,7 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("CONFLICT", e.getMessage()));
     }
 
+    // 락 대기 초과, 데드락 → 503. 같은 clientEventId로 재시도하면 멱등 처리로 안전하다
     @ExceptionHandler(ConcurrencyFailureException.class)   // org.springframework.dao
     public ResponseEntity<ErrorResponse> concurrencyFailure(ConcurrencyFailureException e) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)

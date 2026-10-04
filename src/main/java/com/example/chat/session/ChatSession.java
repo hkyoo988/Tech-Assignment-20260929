@@ -13,6 +13,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+/** 1:1 대화 단위이자 쓰기 모델. 이 행에 락을 걸어 seq를 발급한다. */
 @Entity
 @Table(name = "chat_session")
 @Getter
@@ -34,6 +35,7 @@ public class ChatSession {
 	@Column(nullable = false, columnDefinition = "varchar(20)")
 	private SessionStatus status;
 
+	// 마지막 발급 seq. MAX(seq)를 복사해 둔 값이라, 락을 잡은 이 행에서 추가 조회 없이 다음 번호를 낸다
 	@Column(nullable = false)
 	private long lastSeq;
 
@@ -60,7 +62,7 @@ public class ChatSession {
 		return participantA.equals(userId) || participantB.equals(userId);
 	}
 
-	// 순서 번호는 서버만, 이 메서드로만 발급 (단조 증가 보장)
+	// 순서 번호는 서버만, 이 메서드로만 발급. 락 안에서만 호출되며 바뀐 값은 변경 감지로 커밋 시 UPDATE된다
 	public long nextSeq() {
 		return ++lastSeq;
 	}

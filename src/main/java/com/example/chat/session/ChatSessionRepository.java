@@ -12,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface ChatSessionRepository extends JpaRepository<ChatSession, String> {
 
+	/** SELECT ... FOR UPDATE. 같은 세션의 쓰기를 한 줄로 세우는 핵심 락. */
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("SELECT s FROM ChatSession s WHERE s.id = :id")
 	Optional<ChatSession> findByIdForUpdate(@Param("id") String id);
@@ -24,6 +25,7 @@ public interface ChatSessionRepository extends JpaRepository<ChatSession, String
 		  AND s.startedAt >= :from AND s.startedAt < :to
 		ORDER BY s.startedAt DESC
 		""")
+	/** OR 조건 대신 참여자 테이블을 거쳐 그 사용자의 세션만 읽는다. */
 	List<ChatSession> findByParticipant(@Param("userId") String userId,
 										@Param("status") SessionStatus status,
 										@Param("from") LocalDateTime from,
