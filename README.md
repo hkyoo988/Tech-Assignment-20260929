@@ -84,10 +84,23 @@ websocat "ws://localhost:8080/ws?sessionId=$SID&userId=bob&lastSeq=3"   # 재연
 
 ### 동시성, 중복 재현 스크립트
 
+앱이 실행 중이어야 합니다(`./gradlew bootRun`). 실행할 때마다 새 세션을 만들어 요청을 보냅니다.
+
 ```bash
 ./scripts/concurrency-test.sh      # 서로 다른 이벤트 20개 동시 전송 + 같은 이벤트 20번 동시 재전송
+./scripts/concurrency-test.sh 50   # 동시 요청 수 지정
 ```
 결과와 해석은 [5 §9 검증 결과](docs/5-design.md#9-검증-결과-순서-중복-동시성)에 있습니다.
+
+### 쿼리 성능 측정용 시드 데이터
+
+쿼리 실행 계획(`EXPLAIN`)을 측정할 때만 쓰는 데이터로, 동시성 스크립트나 테스트와는 무관합니다. 자동으로 들어가지 않으며, 앱을 한 번 실행해 테이블을 만든 뒤 직접 넣습니다 (세션 10만, 이벤트 10만 건).
+
+```bash
+docker exec -i chat-mysql mysql -uchat -pchat chat < scripts/seed-perf.sql   # 넣기
+docker compose down -v && docker compose up -d                              # 지우고 초기화
+```
+측정 결과는 [4 주요 쿼리](docs/4-queries.md)에 있습니다.
 
 ## 주요 의사결정 요약
 

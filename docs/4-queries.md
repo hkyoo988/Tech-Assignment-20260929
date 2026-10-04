@@ -12,6 +12,13 @@
 
 데이터가 적으면 옵티마이저가 인덱스를 무시하고 전체를 읽기 때문에, 측정 전 시드 데이터를 넣고 `ANALYZE TABLE`로 통계를 갱신했다.
 
+시드 데이터는 자동으로 들어가지 않는다(Flyway 마이그레이션도, 테스트도 아님). 앱을 한 번 띄워 테이블을 만든 뒤 직접 넣는다.
+
+```bash
+docker exec -i chat-mysql mysql -uchat -pchat chat < scripts/seed-perf.sql   # 넣기
+docker compose down -v && docker compose up -d                              # 지우고 초기화
+```
+
 **관련 인덱스 (V1, V2)**
 
 | 테이블 | 인덱스 | 컬럼 | 용도 |
