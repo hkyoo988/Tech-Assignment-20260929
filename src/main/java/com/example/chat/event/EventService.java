@@ -7,7 +7,7 @@ import com.example.chat.event.dto.AppendResult;
 import com.example.chat.event.dto.EventResponse;
 import com.example.chat.session.ChatSession;
 import com.example.chat.session.ChatSessionRepository;
-import com.example.chat.session.Presence;
+import com.example.chat.session.ParticipantPresence;
 import com.example.chat.session.SessionParticipant;
 import com.example.chat.session.SessionParticipantRepository;
 import java.util.Optional;
@@ -133,8 +133,8 @@ public class EventService {
 		if (p == null || !p.isJoined()) return Optional.empty();       // 참여 중인 사람만
 
 		EventType type = null;
-		if (connected && p.getPresence() == Presence.OFFLINE) type = EventType.RECONNECTED;
-		if (!connected && p.getPresence() == Presence.ONLINE) type = EventType.DISCONNECTED;
+		if (connected && p.getPresence() == ParticipantPresence.OFFLINE) type = EventType.RECONNECTED;
+		if (!connected && p.getPresence() == ParticipantPresence.ONLINE) type = EventType.DISCONNECTED;
 		if (type == null) return Optional.empty();                      // 상태 변화 없으면 기록 안 함
 
 		String clientEventId = "sys-" + type.name().toLowerCase() + "-" + UUID.randomUUID();

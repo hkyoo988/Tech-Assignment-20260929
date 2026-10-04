@@ -20,6 +20,56 @@ tags:
   description: "이벤트 수집·조회 (멱등, seq 순서)"
 paths:
   /sessions:
+    get:
+      tags:
+      - Session
+      summary: 참여자의 세션 목록
+      description: "최신 시작순. status, 기간(from 이상 ~ to 미만, ISO-8601 오프셋 필수) 필터. size\
+        \ 최대 100"
+      operationId: list
+      parameters:
+      - name: participant
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - ACTIVE
+          - INTERRUPTED
+          - COMPLETED
+      - name: from
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: size
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 20
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SessionResponse"
     post:
       tags:
       - Session
@@ -457,24 +507,31 @@ components:
           type: array
           items:
             type: string
+        allow:
+          type: array
+          items:
+            $ref: "#/components/schemas/HttpMethod"
+          uniqueItems: true
+        upgrade:
+          type: string
+        origin:
+          type: string
         connection:
           type: array
           items:
             type: string
-        origin:
-          type: string
         contentType:
           $ref: "#/components/schemas/MediaType"
-        range:
-          type: array
-          items:
-            $ref: "#/components/schemas/HttpRange"
         ifModifiedSince:
           type: integer
           format: int64
         contentLength:
           type: integer
           format: int64
+        range:
+          type: array
+          items:
+            $ref: "#/components/schemas/HttpRange"
         contentDisposition:
           $ref: "#/components/schemas/ContentDisposition"
         acceptCharset:
@@ -534,13 +591,6 @@ components:
           type: string
         etag:
           type: string
-        allow:
-          type: array
-          items:
-            $ref: "#/components/schemas/HttpMethod"
-          uniqueItems: true
-        upgrade:
-          type: string
         accept:
           type: array
           items:
@@ -565,6 +615,10 @@ components:
           type: array
           items:
             type: string
+        ifNoneMatch:
+          type: array
+          items:
+            type: string
         acceptLanguage:
           type: array
           items:
@@ -578,10 +632,6 @@ components:
         ifUnmodifiedSince:
           type: integer
           format: int64
-        ifNoneMatch:
-          type: array
-          items:
-            type: string
         pragma:
           type: string
         vary:

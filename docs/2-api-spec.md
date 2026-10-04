@@ -1,11 +1,8 @@
 # 2. API 명세
 
 > **OpenAPI 명세**: [`docs/openapi.yaml`](openapi.yaml) (springdoc으로 코드에서 생성)
-> 서버 실행 중에는 Swagger UI `http://localhost:8080/swagger-ui.html`, 원본 JSON `/v3/api-docs`.
-> 명세 갱신: `curl -s localhost:8080/v3/api-docs.yaml -o docs/openapi.yaml`
-> 이 문서는 사람이 읽기 위한 요약이며, OpenAPI로 표현할 수 없는 **WebSocket 프로토콜**은 2.3절에 정리한다.
-
-## 2.1 REST API
+> 
+## 1. REST API
 
 | 메서드 | 경로 | 설명 | 상태 |
 |---|---|---|---|
@@ -15,14 +12,22 @@
 | POST | `/sessions/{id}/leave` | 퇴장 (`LEFT`) | ✅ |
 | POST | `/sessions/{id}/end` | 종료 (`SESSION_ENDED`, status → COMPLETED) | ✅ |
 | POST | `/sessions/{id}/events` | 이벤트/메시지 수집 (멱등) | ✅ |
-| GET | `/sessions/{id}/events?afterSeq=&size=` | 이벤트 증분 조회 (재연결 동기화·디버깅) | ✅ |
+| GET | `/sessions/{id}/events?afterSeq=&size=` | 이벤트 증분 조회 (재연결 동기화, 디버깅) | ✅ |
 | GET | `/sessions/{id}/timeline?at=` / `?atSeq=` | 특정 시점 상태 복원 (이벤트 리플레이) | ✅ |
 | GET | `/sessions?participant=&status=&from=&to=&size=` | 참여자의 세션 목록 (최신 시작순, size ≤ 100) | ✅ |
-| POST | `/sessions/{id}/snapshots` | 스냅샷 수동 생성 | 예정 (선택) |
+| POST | `/sessions/{id}/snapshots` | 스냅샷 수동 생성 | 미구현 (선택) — 스냅샷은 이벤트 커밋 후 **자동 생성**하므로 수동 API 대신 자동화를 택함 |
 
-join / leave / end는 전용 엔드포인트지만 내부적으로 **`POST /events`와 같은 `EventService.append()`**를 호출한다. 따라서 락·멱등·순서 규칙이 동일하게 적용된다.
+**과제 예시 API와의 차이**
 
-## 2.2 요청 / 응답
+| 과제 예시 | 이 구현 | 이유 |
+|---|---|---|
+| `GET /sessions` (기간/상태/참여자 필터) | `participant`는 **필수**, `status`, `from`, `to`는 선택 | 핫패스는 "내 대화 목록"이다. 참여자 없이 전체 세션을 기간으로 훑는 조회는 운영, 관리용이라 별도 API(또는 읽기 복제본)로 분리하는 것이 맞다고 판단 |
+| `GET /sessions/{id}/events?from=&to=` | `?afterSeq=&size=` | 기간 대신 **seq 커서** 방식. 재연결 동기화와 같은 쿼리를 쓰고, 페이지가 깊어져도 비용이 같다. 특정 시점 조회는 `/timeline?at=`이 담당 |
+| `GET /sessions/{id}/timeline?at=` | `?at=` 또는 `?atSeq=` | 시각은 내부에서 seq로 변환. 디버깅에는 seq 지정이 더 정확 |
+
+join / leave / end는 전용 엔드포인트지만 내부적으로 **`POST /events`와 같은 `EventService.append()`**를 호출한다. 따라서 락, 멱등, 순서 규칙이 동일하게 적용된다.
+
+## 2. 요청 / 응답
 
 ### 세션 생성 `POST /sessions`
 ```json
@@ -68,9 +73,9 @@ join / leave / end는 전용 엔드포인트지만 내부적으로 **`POST /even
 | 참여자가 아님 / 서버 전용 타입 | `400 BAD_REQUEST` | |
 | 필수값 누락 / JSON 오류 | `400 INVALID_INPUT` / `MALFORMED_REQUEST` | |
 | 세션 없음 | `404 NOT_FOUND` | |
-| 락 대기 초과·데드락 등 일시적 실패 | `503 TRY_AGAIN` + `Retry-After: 1` | 같은 `clientEventId`로 재시도하면 안전 |
+| 락 대기 초과, 데드락 등 일시적 실패 | `503 TRY_AGAIN` + `Retry-After: 1` | 같은 `clientEventId`로 재시도하면 안전 |
 
-> 시각은 모두 UTC로 저장·응답한다. (응답 형식에 `Z` 표기를 추가하는 작업은 예정)
+> 시각은 모두 UTC로 저장, 응답한다. (응답 형식에 `Z` 표기를 추가하는 작업은 예정)
 
 ### 복원 `GET /sessions/{id}/timeline`
 
@@ -103,8 +108,6 @@ join / leave / end는 전용 엔드포인트지만 내부적으로 **`POST /even
 | `atSeq`와 `at` 동시 지정, `atSeq < 0`, 시각 형식 오류 | 400 |
 | 세션 없음 | 404 |
 
-> `at`에 `+09:00`을 쓸 때는 URL에서 `+`가 공백으로 해석되므로 `%2B09:00`으로 인코딩해야 한다.
-
 ### 이벤트 조회 `GET /sessions/{id}/events?afterSeq=3&size=100`
 seq 오름차순 배열. `size` 최대 500.
 
@@ -113,7 +116,7 @@ seq 오름차순 배열. `size` 최대 500.
 { "code": "CONFLICT", "message": "종료된 세션입니다: 1fa0…" }
 ```
 
-## 2.3 WebSocket
+## 3. WebSocket
 
 ### 연결
 ```

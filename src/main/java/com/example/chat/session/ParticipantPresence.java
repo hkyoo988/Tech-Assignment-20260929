@@ -1,5 +1,5 @@
 package com.example.chat.session;
 
-public enum Presence {
+public enum ParticipantPresence {
 	ONLINE, OFFLINE
 }

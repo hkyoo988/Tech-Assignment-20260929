@@ -2,8 +2,8 @@ package com.example.chat.session;
 
 import static com.example.chat.session.ParticipantState.JOINED;
 import static com.example.chat.session.ParticipantState.LEFT;
-import static com.example.chat.session.Presence.OFFLINE;
-import static com.example.chat.session.Presence.ONLINE;
+import static com.example.chat.session.ParticipantPresence.OFFLINE;
+import static com.example.chat.session.ParticipantPresence.ONLINE;
 
 import com.example.chat.event.EventType;
 import jakarta.persistence.Column;
@@ -40,7 +40,7 @@ public class SessionParticipant {
 
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, columnDefinition = "varchar(10)")
-	private Presence presence;
+	private ParticipantPresence presence;
 
 	@Column(nullable = false)
 	private long lastAppliedSeq;
