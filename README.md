@@ -14,7 +14,7 @@
 | 4 | 주요 쿼리 2~3개 + 인덱스 근거 + 병목 설명 | [docs/4-queries.md](docs/4-queries.md) |
 | 5 | 설계 문서: 재연결, 중복 처리, 확장성, 관측 가능성, 장애 대응 | [docs/5-design.md](docs/5-design.md) |
 | 6 | 이벤트 기반 상태 복원 설계 또는 구현 결과 | [docs/6-state-restoration.md](docs/6-state-restoration.md) |
-| 7 | (선택) Snapshot/Projection 고도화 구현 | ✅ [docs/7-optional.md](docs/7-optional.md) |
+| 7 | (선택) Snapshot/Projection 고도화 구현 | [docs/7-optional.md](docs/7-optional.md) |
 | 8 | (선택) 부하 테스트 결과, 대시보드, 추가 통신 방식 검토 | [docs/7-optional.md](docs/7-optional.md) |
 
 ## 필수 구현 (과제 4.1)
